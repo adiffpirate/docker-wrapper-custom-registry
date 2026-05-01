@@ -457,6 +457,18 @@ def main():
 
             run_real([cmd, sub, *subrest], env=env_with_buildkit_off())
 
+    if cmd == "builder":
+        if not rest:
+            run_real(argv)
+
+        sub = rest[0]
+        subrest = rest[1:]
+
+        if sub == "build":
+            _run_build([cmd, sub], subrest)
+
+        run_real([cmd, *rest])
+
     if cmd == "compose":
         rest2, explicit = strip_file_args(rest)
         files = explicit or compose_default_files()

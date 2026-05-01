@@ -583,5 +583,25 @@ class TestImageBuild(unittest.TestCase):
                 self.assertTrue(first_args[3].endswith(".Dockerfile"))
 
 
+class TestBuilderBuild(unittest.TestCase):
+    def test_builder_build_with_dockerfile_flag(self):
+        with MockDockerReal() as real_path:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                dockerfile = os.path.join(tmpdir, "Dockerfile")
+                with open(dockerfile, "w") as f:
+                    f.write("FROM python:3.11\nRUN echo hello\n")
+                stdout, stderr, rc = run_wrapper(
+                    ["builder", "build", "-f", dockerfile, "."], real_path=real_path, cwd=tmpdir
+                )
+                self.assertEqual(rc, 0)
+                lines = stdout.strip().splitlines()
+                first_args = parse_docker_cmd(lines[0])
+                self.assertEqual(first_args[0], "builder")
+                self.assertEqual(first_args[1], "build")
+                self.assertEqual(first_args[2], "-f")
+                self.assertIn(".rewritten.", first_args[3])
+                self.assertTrue(first_args[3].endswith(".Dockerfile"))
+
+
 if __name__ == "__main__":
     unittest.main()
