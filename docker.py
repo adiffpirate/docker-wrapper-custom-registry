@@ -77,6 +77,28 @@ def rewrite_first_image(args, registry: str = REGISTRY):
     return out
 
 
+def rewrite_all_images(args, registry: str = REGISTRY):
+    out = list(args)
+
+    i = 0
+    while i < len(out):
+        token = out[i]
+
+        if is_flag(token):
+            if "=" in token:
+                i += 1
+            elif i + 1 < len(out) and not is_flag(out[i + 1]):
+                i += 2
+            else:
+                i += 1
+            continue
+
+        out[i] = rewrite(out[i], registry)
+        i += 1
+
+    return out
+
+
 def rewrite_dockerfile_text(text: str, registry: str = REGISTRY) -> str:
     out = []
 
@@ -253,6 +275,9 @@ def main():
     if cmd in {"pull", "run", "create"}:
         run_real([cmd, *rewrite_first_image(rest)])
 
+    if cmd == "rmi":
+        run_real([cmd, *rewrite_all_images(rest)])
+
     if cmd == "build":
         build_args = list(rest)
         dockerfile = None
@@ -345,6 +370,8 @@ def main():
         subrest = rest[1:]
         if sub in {"pull", "run", "create"}:
             run_real([cmd, sub, *rewrite_first_image(subrest)])
+        if sub == "rm":
+            run_real([cmd, sub, *rewrite_all_images(subrest)])
         run_real([cmd, *rest])
 
     run_real(argv)
