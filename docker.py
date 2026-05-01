@@ -10,7 +10,7 @@ try:
 except Exception:
     yaml = None
 
-REAL = "/usr/bin/docker.real"
+REAL = os.environ.get("DOCKER_REAL", "/usr/bin/docker.real")
 REGISTRY = os.environ.get("DOCKER_REGISTRY")
 if not REGISTRY:
     print("Error: DOCKER_REGISTRY environment variable is not set.", file=sys.stderr)

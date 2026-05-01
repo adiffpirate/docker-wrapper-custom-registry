@@ -1,0 +1,10 @@
+#!/bin/sh
+# Mock docker.real that echoes received arguments and env vars to stdout
+# Format:
+#   DOCKER_CMD: <arg1> <arg2> ...
+#   ENV: DOCKER_BUILDKIT=<val>
+#   ENV: COMPOSE_DOCKER_CLI_BUILD=<val>
+echo "DOCKER_CMD: $*"
+echo "ENV: DOCKER_BUILDKIT=${DOCKER_BUILDKIT:-not set}"
+echo "ENV: COMPOSE_DOCKER_CLI_BUILD=${COMPOSE_DOCKER_CLI_BUILD:-not set}"
+exit 0
