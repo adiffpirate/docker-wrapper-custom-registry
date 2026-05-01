@@ -44,13 +44,13 @@ def is_qualified(ref: str) -> bool:
     return head == "localhost" or "." in head or ":" in head
 
 
-def rewrite(ref: str) -> str:
-    if ref.startswith(REGISTRY + "/") or is_qualified(ref):
+def rewrite(ref: str, registry: str = REGISTRY) -> str:
+    if ref.startswith(registry + "/") or is_qualified(ref):
         return ref
-    return f"{REGISTRY}/{ref}"
+    return f"{registry}/{ref}"
 
 
-def rewrite_first_image(args):
+def rewrite_first_image(args, registry: str = REGISTRY):
     out = list(args)
 
     i = 0
@@ -67,13 +67,13 @@ def rewrite_first_image(args):
             continue
 
         # first non-flag after skipping flag+value pairs = IMAGE
-        out[i] = rewrite(out[i])
+        out[i] = rewrite(out[i], registry)
         return out
 
     return out
 
 
-def rewrite_dockerfile_text(text: str) -> str:
+def rewrite_dockerfile_text(text: str, registry: str = REGISTRY) -> str:
     out = []
 
     for line in text.splitlines(True):
@@ -100,7 +100,7 @@ def rewrite_dockerfile_text(text: str) -> str:
             continue
 
         image = tokens[i]
-        rebuilt = [tokens[0], *tokens[1:i], rewrite(image), *tokens[i + 1:]]
+        rebuilt = [tokens[0], *tokens[1:i], rewrite(image, registry), *tokens[i + 1:]]
         out.append(prefix_ws + " ".join(rebuilt) + newline)
 
     return "".join(out)
@@ -121,14 +121,14 @@ def temp_file_same_dir(src_path: str, suffix: str):
     return tmp
 
 
-def rewrite_dockerfile(path: str) -> str:
+def rewrite_dockerfile(path: str, registry: str = REGISTRY) -> str:
     if not os.path.exists(path):
         return path
 
     with open(path, "r", encoding="utf-8") as f:
         original = f.read()
 
-    rewritten = rewrite_dockerfile_text(original)
+    rewritten = rewrite_dockerfile_text(original, registry)
     if rewritten == original:
         return path
 
@@ -139,12 +139,12 @@ def rewrite_dockerfile(path: str) -> str:
     return tmp
 
 
-def rewrite_compose_doc(doc, compose_dir: str):
+def rewrite_compose_doc(doc, compose_dir: str, registry: str = REGISTRY):
     if isinstance(doc, dict):
         out = {}
         for k, v in doc.items():
             if k == "image" and isinstance(v, str):
-                out[k] = rewrite(v)
+                out[k] = rewrite(v, registry)
             elif k == "build":
                 if isinstance(v, dict):
                     vv = dict(v)
@@ -161,23 +161,23 @@ def rewrite_compose_doc(doc, compose_dir: str):
                             dockerfile_abs = os.path.normpath(os.path.join(context_abs, dockerfile_abs))
 
                         if os.path.exists(dockerfile_abs):
-                            tmp_df = rewrite_dockerfile(dockerfile_abs)
+                            tmp_df = rewrite_dockerfile(dockerfile_abs, registry)
                             vv["dockerfile"] = tmp_df  # absolute path is safest
 
-                    out[k] = rewrite_compose_doc(vv, compose_dir)
+                    out[k] = rewrite_compose_doc(vv, compose_dir, registry)
                 else:
-                    out[k] = rewrite_compose_doc(v, compose_dir)
+                    out[k] = rewrite_compose_doc(v, compose_dir, registry)
             else:
-                out[k] = rewrite_compose_doc(v, compose_dir)
+                out[k] = rewrite_compose_doc(v, compose_dir, registry)
         return out
 
     if isinstance(doc, list):
-        return [rewrite_compose_doc(x, compose_dir) for x in doc]
+        return [rewrite_compose_doc(x, compose_dir, registry) for x in doc]
 
     return doc
 
 
-def rewrite_compose_file(path: str) -> str:
+def rewrite_compose_file(path: str, registry: str = REGISTRY) -> str:
     if yaml is None or not os.path.exists(path):
         return path
 
@@ -185,7 +185,7 @@ def rewrite_compose_file(path: str) -> str:
     with open(path, "r", encoding="utf-8") as f:
         docs = list(yaml.safe_load_all(f))
 
-    new_docs = [rewrite_compose_doc(d, compose_dir) if d is not None else None for d in docs]
+    new_docs = [rewrite_compose_doc(d, compose_dir, registry) if d is not None else None for d in docs]
 
     tmp = temp_file_same_dir(path, suffix=".compose.yml")
     with open(tmp, "w", encoding="utf-8") as f:
