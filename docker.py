@@ -77,6 +77,32 @@ def rewrite_first_image(args, registry: str = REGISTRY):
     return out
 
 
+def rewrite_push_image(args, registry: str = REGISTRY):
+    """Rewrite the first non-flag image argument, treating --all-tags as boolean."""
+    out = list(args)
+
+    i = 0
+    while i < len(out):
+        token = out[i]
+
+        if is_flag(token):
+            if token in ("--all-tags", "-a"):
+                i += 1
+                continue
+            if "=" in token:
+                i += 1
+            elif i + 1 < len(out) and not is_flag(out[i + 1]):
+                i += 2
+            else:
+                i += 1
+            continue
+
+        out[i] = rewrite(out[i], registry)
+        return out
+
+    return out
+
+
 def rewrite_all_images(args, registry: str = REGISTRY):
     out = list(args)
 
@@ -275,6 +301,9 @@ def main():
     if cmd in {"pull", "run", "create"}:
         run_real([cmd, *rewrite_first_image(rest)])
 
+    if cmd == "push":
+        run_real([cmd, *rewrite_push_image(rest)])
+
     if cmd == "rmi":
         run_real([cmd, *rewrite_all_images(rest)])
 
@@ -372,6 +401,8 @@ def main():
             run_real([cmd, sub, *rewrite_first_image(subrest)])
         if sub == "rm":
             run_real([cmd, sub, *rewrite_all_images(subrest)])
+        if sub == "push":
+            run_real([cmd, sub, *rewrite_push_image(subrest)])
         run_real([cmd, *rest])
 
     run_real(argv)

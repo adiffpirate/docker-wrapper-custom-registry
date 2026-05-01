@@ -277,6 +277,42 @@ class TestImageRm(unittest.TestCase):
             self.assertEqual(args, ["image", "rm", "10.0.2.100:5000/python:3.11", "10.0.2.100:5000/alpine:3.18"])
 
 
+class TestPush(unittest.TestCase):
+    def test_unqualified_image(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(["push", "python:3.11"], real_path=real_path)
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["push", "10.0.2.100:5000/python:3.11"])
+
+    def test_qualified_image_unchanged(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["push", "localhost/foo:latest"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["push", "localhost/foo:latest"])
+
+    def test_with_flag(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["push", "--all-tags", "python:3.11"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["push", "--all-tags", "10.0.2.100:5000/python:3.11"])
+
+
+class TestImagePush(unittest.TestCase):
+    def test_unqualified_image(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(["image", "push", "python:3.11"], real_path=real_path)
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["image", "push", "10.0.2.100:5000/python:3.11"])
+
+
 class TestBuild(unittest.TestCase):
     def test_build_with_dockerfile_flag(self):
         with MockDockerReal() as real_path:
