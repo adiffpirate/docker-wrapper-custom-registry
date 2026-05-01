@@ -36,3 +36,9 @@ It expects `/usr/bin/docker.real` to exist (the actual docker binary). Without a
 - Depends on `pyyaml` (optional import — falls back gracefully if absent, meaning compose rewriting silently skips)
 - No test suite, no linter, no formatter
 - Temp files use prefix `.FILENAME.rewritten.` in the same directory as the source
+
+### Git
+
+- Always use [conventional commits](https://www.conventionalcommits.org/) format: `type: description`
+- Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`
+- If git identity is not already configured, ask the user for their username and email before committing
