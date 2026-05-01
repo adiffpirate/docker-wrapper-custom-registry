@@ -34,8 +34,19 @@ It expects `/usr/bin/docker.real` to exist (the actual docker binary). Without a
 
 - `DOCKER_REGISTRY` env var is **required** — the script exits with an error if not set
 - Depends on `pyyaml` (optional import — falls back gracefully if absent, meaning compose rewriting silently skips)
-- No test suite, no linter, no formatter
 - Temp files use prefix `.FILENAME.rewritten.` in the same directory as the source
+- `DOCKER_REAL` env var overrides the hardcoded `/usr/bin/docker.real` path (useful for tests)
+
+### Tests
+
+```bash
+make test        # run all tests
+make test-unit   # unit tests only
+make test-functional  # functional tests only
+```
+
+- Unit tests: `tests/unit/test_docker.py` — test core functions in isolation
+- Functional tests: `tests/functional/test_docker_wrapper.py` — run `docker.py` as subprocess against a mock `docker.real`
 
 ### Git
 
