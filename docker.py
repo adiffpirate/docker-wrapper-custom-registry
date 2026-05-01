@@ -142,6 +142,45 @@ def rewrite_tag_args(args, registry: str = REGISTRY):
     return out
 
 
+def rewrite_commit_args(args, registry: str = REGISTRY):
+    """Rewrite the optional REPOSITORY[:TAG] for docker commit.
+
+    docker commit [OPTIONS] CONTAINER [REPOSITORY[:TAG]]
+    The first positional is the container name (not rewritten).
+    The second positional (if present) is an image ref (rewritten).
+    """
+    out = list(args)
+
+    # Skip flags to find first positional (CONTAINER)
+    i = 0
+    while i < len(out) and is_flag(out[i]):
+        if "=" in out[i]:
+            i += 1
+        elif i + 1 < len(out) and not is_flag(out[i + 1]):
+            i += 2
+        else:
+            i += 1
+
+    # First positional = CONTAINER (skip it)
+    if i < len(out):
+        i += 1
+
+    # Skip any remaining flags
+    while i < len(out) and is_flag(out[i]):
+        if "=" in out[i]:
+            i += 1
+        elif i + 1 < len(out) and not is_flag(out[i + 1]):
+            i += 2
+        else:
+            i += 1
+
+    # Second positional = REPOSITORY[:TAG] (optional, rewrite if present)
+    if i < len(out):
+        out[i] = rewrite(out[i], registry)
+
+    return out
+
+
 def rewrite_all_images(args, registry: str = REGISTRY):
     out = list(args)
 
@@ -349,6 +388,9 @@ def main():
     if cmd == "tag":
         run_real([cmd, *rewrite_tag_args(rest)])
 
+    if cmd == "commit":
+        run_real([cmd, *rewrite_commit_args(rest)])
+
     if cmd == "save":
         run_real([cmd, *rewrite_all_images(rest)])
 
@@ -452,6 +494,8 @@ def main():
             run_real([cmd, sub, *rewrite_all_images(subrest)])
         if sub == "tag":
             run_real([cmd, sub, *rewrite_tag_args(subrest)])
+        if sub == "commit":
+            run_real([cmd, sub, *rewrite_commit_args(subrest)])
         run_real([cmd, *rest])
 
     run_real(argv)

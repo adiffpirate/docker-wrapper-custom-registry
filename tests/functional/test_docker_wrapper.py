@@ -523,5 +523,45 @@ class TestImageTag(unittest.TestCase):
             self.assertEqual(args, ["image", "tag", "10.0.2.100:5000/python:3.11", "10.0.2.100:5000/myrepo/python:3.11"])
 
 
+class TestCommit(unittest.TestCase):
+    def test_with_repository(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["commit", "mycontainer", "myrepo/myimage:latest"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["commit", "mycontainer", "10.0.2.100:5000/myrepo/myimage:latest"])
+
+    def test_without_repository(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["commit", "mycontainer"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["commit", "mycontainer"])
+
+    def test_with_flag_and_repository(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["commit", "-m", "message", "mycontainer", "myrepo/myimage:latest"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["commit", "-m", "message", "mycontainer", "10.0.2.100:5000/myrepo/myimage:latest"])
+
+
+class TestContainerCommit(unittest.TestCase):
+    def test_with_repository(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["container", "commit", "mycontainer", "myrepo/myimage:latest"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["container", "commit", "mycontainer", "10.0.2.100:5000/myrepo/myimage:latest"])
+
+
 if __name__ == "__main__":
     unittest.main()
