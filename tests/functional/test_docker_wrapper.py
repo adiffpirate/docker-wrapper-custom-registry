@@ -429,5 +429,59 @@ class TestBuildKitDisabled(unittest.TestCase):
                 self.assertIn("COMPOSE_DOCKER_CLI_BUILD=0", result.stdout)
 
 
+class TestSave(unittest.TestCase):
+    def test_unqualified_image(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(["save", "python:3.11"], real_path=real_path)
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["save", "10.0.2.100:5000/python:3.11"])
+
+    def test_multiple_images(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["save", "python:3.11", "alpine:3.18"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["save", "10.0.2.100:5000/python:3.11", "10.0.2.100:5000/alpine:3.18"])
+
+    def test_with_output_flag(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["save", "-o", "out.tar", "python:3.11"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["save", "-o", "out.tar", "10.0.2.100:5000/python:3.11"])
+
+    def test_with_output_equals_flag(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["save", "--output=out.tar", "python:3.11"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["save", "--output=out.tar", "10.0.2.100:5000/python:3.11"])
+
+
+class TestImageSave(unittest.TestCase):
+    def test_unqualified_image(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(["image", "save", "python:3.11"], real_path=real_path)
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["image", "save", "10.0.2.100:5000/python:3.11"])
+
+    def test_multiple_images(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["image", "save", "python:3.11", "alpine:3.18"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["image", "save", "10.0.2.100:5000/python:3.11", "10.0.2.100:5000/alpine:3.18"])
+
+
 if __name__ == "__main__":
     unittest.main()

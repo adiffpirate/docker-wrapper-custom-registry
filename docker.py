@@ -307,6 +307,9 @@ def main():
     if cmd == "rmi":
         run_real([cmd, *rewrite_all_images(rest)])
 
+    if cmd == "save":
+        run_real([cmd, *rewrite_all_images(rest)])
+
     if cmd == "build":
         build_args = list(rest)
         dockerfile = None
@@ -403,6 +406,8 @@ def main():
             run_real([cmd, sub, *rewrite_all_images(subrest)])
         if sub == "push":
             run_real([cmd, sub, *rewrite_push_image(subrest)])
+        if sub == "save":
+            run_real([cmd, sub, *rewrite_all_images(subrest)])
         run_real([cmd, *rest])
 
     run_real(argv)
