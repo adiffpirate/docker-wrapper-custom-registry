@@ -59,8 +59,12 @@ def rewrite_first_image(args, registry: str = REGISTRY):
 
         # skip flags
         if is_flag(token):
+            # flags with = have their value embedded (e.g. -e=FOO=BAR, --name=mycontainer)
+            # so only advance by 1
+            if "=" in token:
+                i += 1
             # skip next token if it's a value (not another flag)
-            if i + 1 < len(out) and not is_flag(out[i + 1]):
+            elif i + 1 < len(out) and not is_flag(out[i + 1]):
                 i += 2
             else:
                 i += 1

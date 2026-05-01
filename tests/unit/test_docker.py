@@ -102,10 +102,9 @@ class TestRewriteFirstImage(unittest.TestCase):
         self.assertEqual(result, ["--name", "mycontainer", "10.0.2.100:5000/python:3.11"])
 
     def test_flag_with_equals_value(self):
-        # --platform=linux/amd64 starts with - so is_flag returns True, but the next
-        # token "python:3.11" is not a flag, so it's skipped as the flag's value
+        # --platform=linux/amd64 has = so its value is embedded; next token is the image
         result = docker.rewrite_first_image(["--platform=linux/amd64", "python:3.11"], registry="10.0.2.100:5000")
-        self.assertEqual(result, ["--platform=linux/amd64", "python:3.11"])
+        self.assertEqual(result, ["--platform=linux/amd64", "10.0.2.100:5000/python:3.11"])
 
     def test_already_qualified(self):
         result = docker.rewrite_first_image(["localhost/foo"], registry="10.0.2.100:5000")
@@ -114,6 +113,38 @@ class TestRewriteFirstImage(unittest.TestCase):
     def test_no_args(self):
         result = docker.rewrite_first_image([], registry="10.0.2.100:5000")
         self.assertEqual(result, [])
+
+    def test_short_flag_with_equals(self):
+        result = docker.rewrite_first_image(["-e=FOO=BAR", "python:3.11"], registry="10.0.2.100:5000")
+        self.assertEqual(result, ["-e=FOO=BAR", "10.0.2.100:5000/python:3.11"])
+
+    def test_long_flag_with_equals(self):
+        result = docker.rewrite_first_image(["--env=FOO=BAR", "python:3.11"], registry="10.0.2.100:5000")
+        self.assertEqual(result, ["--env=FOO=BAR", "10.0.2.100:5000/python:3.11"])
+
+    def test_multiple_short_flags_with_equals(self):
+        result = docker.rewrite_first_image(
+            ["-e=FOO=BAR", "-e=BAZ=QUX", "python:3.11"], registry="10.0.2.100:5000"
+        )
+        self.assertEqual(result, ["-e=FOO=BAR", "-e=BAZ=QUX", "10.0.2.100:5000/python:3.11"])
+
+    def test_multiple_long_flags_with_equals(self):
+        result = docker.rewrite_first_image(
+            ["--env=FOO=BAR", "--name=mycontainer", "python:3.11"], registry="10.0.2.100:5000"
+        )
+        self.assertEqual(result, ["--env=FOO=BAR", "--name=mycontainer", "10.0.2.100:5000/python:3.11"])
+
+    def test_mixed_flags_with_and_without_equals(self):
+        result = docker.rewrite_first_image(
+            ["-e=FOO=BAR", "--name", "mycontainer", "python:3.11"], registry="10.0.2.100:5000"
+        )
+        self.assertEqual(result, ["-e=FOO=BAR", "--name", "mycontainer", "10.0.2.100:5000/python:3.11"])
+
+    def test_short_flag_without_equals_then_equals_flag(self):
+        result = docker.rewrite_first_image(
+            ["-t", "-e=FOO=BAR", "python:3.11"], registry="10.0.2.100:5000"
+        )
+        self.assertEqual(result, ["-t", "-e=FOO=BAR", "10.0.2.100:5000/python:3.11"])
 
 
 class TestRewriteDockerfileText(unittest.TestCase):

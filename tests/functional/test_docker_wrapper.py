@@ -138,7 +138,7 @@ class TestRun(unittest.TestCase):
             )
             self.assertEqual(rc, 0)
             args = parse_docker_cmd(stdout)
-            self.assertEqual(args, ["run", "--platform=linux/amd64", "python:3.11"])
+            self.assertEqual(args, ["run", "--platform=linux/amd64", "10.0.2.100:5000/python:3.11"])
 
     def test_qualified_image(self):
         with MockDockerReal() as real_path:
@@ -158,6 +158,51 @@ class TestRun(unittest.TestCase):
             args = parse_docker_cmd(stdout)
             # First non-flag image is rewritten; remaining args untouched
             self.assertEqual(args, ["run", "-v", "/host:/container", "10.0.2.100:5000/python:3.11", "echo", "hello"])
+
+    def test_short_flag_with_equals(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["run", "-e=FOO=BAR", "python:3.11"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["run", "-e=FOO=BAR", "10.0.2.100:5000/python:3.11"])
+
+    def test_long_flag_with_equals(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["run", "--env=FOO=BAR", "python:3.11"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["run", "--env=FOO=BAR", "10.0.2.100:5000/python:3.11"])
+
+    def test_multiple_flags_with_equals(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["run", "-e=FOO=BAR", "-e=BAZ=QUX", "python:3.11"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["run", "-e=FOO=BAR", "-e=BAZ=QUX", "10.0.2.100:5000/python:3.11"])
+
+    def test_mixed_flags_with_and_without_equals(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["run", "-e=FOO=BAR", "--name", "mycontainer", "python:3.11"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["run", "-e=FOO=BAR", "--name", "mycontainer", "10.0.2.100:5000/python:3.11"])
+
+    def test_short_flag_without_equals_then_equals_flag(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["run", "-t", "-e=FOO=BAR", "python:3.11"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["run", "-t", "-e=FOO=BAR", "10.0.2.100:5000/python:3.11"])
 
 
 class TestCreate(unittest.TestCase):
