@@ -483,5 +483,45 @@ class TestImageSave(unittest.TestCase):
             self.assertEqual(args, ["image", "save", "10.0.2.100:5000/python:3.11", "10.0.2.100:5000/alpine:3.18"])
 
 
+class TestTag(unittest.TestCase):
+    def test_simple(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["tag", "python:3.11", "myrepo/python:3.11"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["tag", "10.0.2.100:5000/python:3.11", "10.0.2.100:5000/myrepo/python:3.11"])
+
+    def test_qualified_source(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["tag", "localhost/foo:latest", "myrepo/foo:latest"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["tag", "localhost/foo:latest", "10.0.2.100:5000/myrepo/foo:latest"])
+
+    def test_qualified_target(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["tag", "python:3.11", "localhost/myrepo:latest"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["tag", "10.0.2.100:5000/python:3.11", "localhost/myrepo:latest"])
+
+
+class TestImageTag(unittest.TestCase):
+    def test_simple(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["image", "tag", "python:3.11", "myrepo/python:3.11"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["image", "tag", "10.0.2.100:5000/python:3.11", "10.0.2.100:5000/myrepo/python:3.11"])
+
+
 if __name__ == "__main__":
     unittest.main()

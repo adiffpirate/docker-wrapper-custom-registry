@@ -103,6 +103,45 @@ def rewrite_push_image(args, registry: str = REGISTRY):
     return out
 
 
+def rewrite_tag_args(args, registry: str = REGISTRY):
+    """Rewrite SOURCE_IMAGE and TARGET_IMAGE for docker tag.
+
+    docker tag [OPTIONS] SOURCE_IMAGE[:TAG] TARGET_IMAGE[:TAG]
+    Both positional args are image references that need rewriting.
+    """
+    out = list(args)
+
+    # Skip flags to find first positional (SOURCE_IMAGE)
+    i = 0
+    while i < len(out) and is_flag(out[i]):
+        if "=" in out[i]:
+            i += 1
+        elif i + 1 < len(out) and not is_flag(out[i + 1]):
+            i += 2
+        else:
+            i += 1
+
+    # First positional = SOURCE_IMAGE
+    if i < len(out):
+        out[i] = rewrite(out[i], registry)
+        i += 1
+
+    # Skip any remaining flags between source and target
+    while i < len(out) and is_flag(out[i]):
+        if "=" in out[i]:
+            i += 1
+        elif i + 1 < len(out) and not is_flag(out[i + 1]):
+            i += 2
+        else:
+            i += 1
+
+    # Second positional = TARGET_IMAGE
+    if i < len(out):
+        out[i] = rewrite(out[i], registry)
+
+    return out
+
+
 def rewrite_all_images(args, registry: str = REGISTRY):
     out = list(args)
 
@@ -307,6 +346,9 @@ def main():
     if cmd == "rmi":
         run_real([cmd, *rewrite_all_images(rest)])
 
+    if cmd == "tag":
+        run_real([cmd, *rewrite_tag_args(rest)])
+
     if cmd == "save":
         run_real([cmd, *rewrite_all_images(rest)])
 
@@ -408,6 +450,8 @@ def main():
             run_real([cmd, sub, *rewrite_push_image(subrest)])
         if sub == "save":
             run_real([cmd, sub, *rewrite_all_images(subrest)])
+        if sub == "tag":
+            run_real([cmd, sub, *rewrite_tag_args(subrest)])
         run_real([cmd, *rest])
 
     run_real(argv)
