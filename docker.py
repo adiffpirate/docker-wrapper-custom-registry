@@ -324,6 +324,45 @@ def rewrite_compose_file(path: str, registry: str = REGISTRY) -> str:
     return tmp
 
 
+def _extract_dockerfile(args):
+    """Extract the Dockerfile path from build args. Returns (dockerfile_path, remaining_args)."""
+    dockerfile = None
+    out = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("-f", "--file") and i + 1 < len(args):
+            dockerfile = args[i + 1]
+            i += 2
+            continue
+        if a.startswith("--file="):
+            dockerfile = a.split("=", 1)[1]
+            i += 1
+            continue
+        out.append(a)
+        i += 1
+    if dockerfile is None and os.path.exists("Dockerfile"):
+        dockerfile = "Dockerfile"
+    return dockerfile, out
+
+
+def _run_build(cmd_list, rest, dockerfile_arg="-f"):
+    """Run a build command with Dockerfile FROM rewriting.
+
+    cmd_list: list of command tokens, e.g. ["build"] or ["image", "build"]
+    """
+    build_args = list(rest)
+    dockerfile, out = _extract_dockerfile(build_args)
+
+    if dockerfile is not None:
+        run_real(
+            [*cmd_list, dockerfile_arg, rewrite_dockerfile(dockerfile), *out],
+            env=env_with_buildkit_off(),
+        )
+
+    run_real([*cmd_list, *rest], env=env_with_buildkit_off())
+
+
 def strip_file_args(argv):
     out = []
     files = []
@@ -395,33 +434,7 @@ def main():
         run_real([cmd, *rewrite_all_images(rest)])
 
     if cmd == "build":
-        build_args = list(rest)
-        dockerfile = None
-        out = []
-        i = 0
-        while i < len(build_args):
-            a = build_args[i]
-            if a in ("-f", "--file") and i + 1 < len(build_args):
-                dockerfile = build_args[i + 1]
-                i += 2
-                continue
-            if a.startswith("--file="):
-                dockerfile = a.split("=", 1)[1]
-                i += 1
-                continue
-            out.append(a)
-            i += 1
-
-        if dockerfile is None and os.path.exists("Dockerfile"):
-            dockerfile = "Dockerfile"
-
-        if dockerfile is not None:
-            run_real(
-                [cmd, "-f", rewrite_dockerfile(dockerfile), *out],
-                env=env_with_buildkit_off(),
-            )
-
-        run_real([cmd, *rest], env=env_with_buildkit_off())
+        _run_build([cmd], rest)
 
     if cmd == "buildx":
         if not rest:
@@ -431,33 +444,7 @@ def main():
         subrest = rest[1:]
 
         if sub == "build":
-            build_args = list(subrest)
-            dockerfile = None
-            out = []
-            i = 0
-            while i < len(build_args):
-                a = build_args[i]
-                if a in ("-f", "--file") and i + 1 < len(build_args):
-                    dockerfile = build_args[i + 1]
-                    i += 2
-                    continue
-                if a.startswith("--file="):
-                    dockerfile = a.split("=", 1)[1]
-                    i += 1
-                    continue
-                out.append(a)
-                i += 1
-
-            if dockerfile is None and os.path.exists("Dockerfile"):
-                dockerfile = "Dockerfile"
-
-            if dockerfile is not None:
-                run_real(
-                    [cmd, sub, "-f", rewrite_dockerfile(dockerfile), *out],
-                    env=env_with_buildkit_off(),
-                )
-
-            run_real([cmd, sub, *subrest], env=env_with_buildkit_off())
+            _run_build([cmd, sub], subrest)
 
         if sub == "bake":
             files_rest, explicit = strip_file_args(subrest)
@@ -496,6 +483,8 @@ def main():
             run_real([cmd, sub, *rewrite_tag_args(subrest)])
         if sub == "commit":
             run_real([cmd, sub, *rewrite_commit_args(subrest)])
+        if sub == "build":
+            _run_build([cmd, sub], subrest)
         run_real([cmd, *rest])
 
     run_real(argv)

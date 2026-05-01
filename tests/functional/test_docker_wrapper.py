@@ -563,5 +563,25 @@ class TestContainerCommit(unittest.TestCase):
             self.assertEqual(args, ["container", "commit", "mycontainer", "10.0.2.100:5000/myrepo/myimage:latest"])
 
 
+class TestImageBuild(unittest.TestCase):
+    def test_build_with_dockerfile_flag(self):
+        with MockDockerReal() as real_path:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                dockerfile = os.path.join(tmpdir, "Dockerfile")
+                with open(dockerfile, "w") as f:
+                    f.write("FROM python:3.11\nRUN echo hello\n")
+                stdout, stderr, rc = run_wrapper(
+                    ["image", "build", "-f", dockerfile, "."], real_path=real_path, cwd=tmpdir
+                )
+                self.assertEqual(rc, 0)
+                lines = stdout.strip().splitlines()
+                first_args = parse_docker_cmd(lines[0])
+                self.assertEqual(first_args[0], "image")
+                self.assertEqual(first_args[1], "build")
+                self.assertEqual(first_args[2], "-f")
+                self.assertIn(".rewritten.", first_args[3])
+                self.assertTrue(first_args[3].endswith(".Dockerfile"))
+
+
 if __name__ == "__main__":
     unittest.main()
