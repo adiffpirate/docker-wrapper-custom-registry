@@ -391,6 +391,63 @@ class TestComposeDefaultFiles(unittest.TestCase):
             finally:
                 os.chdir(old_cwd)
 
+    def test_respects_compose_file_env(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                open("custom.yml", "w").close()
+                os.environ["COMPOSE_FILE"] = "custom.yml"
+                try:
+                    result = docker.compose_default_files()
+                    self.assertEqual(result, ["custom.yml"])
+                finally:
+                    del os.environ["COMPOSE_FILE"]
+            finally:
+                os.chdir(old_cwd)
+
+    def test_compose_file_multiple_paths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                open("a.yml", "w").close()
+                open("b.yml", "w").close()
+                os.environ["COMPOSE_FILE"] = os.pathsep.join(["a.yml", "b.yml"])
+                try:
+                    result = docker.compose_default_files()
+                    self.assertEqual(result, ["a.yml", "b.yml"])
+                finally:
+                    del os.environ["COMPOSE_FILE"]
+            finally:
+                os.chdir(old_cwd)
+
+    def test_compose_file_skips_missing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                open("exists.yml", "w").close()
+                os.environ["COMPOSE_FILE"] = "exists.yml" + os.pathsep + "missing.yml"
+                try:
+                    result = docker.compose_default_files()
+                    self.assertEqual(result, ["exists.yml"])
+                finally:
+                    del os.environ["COMPOSE_FILE"]
+            finally:
+                os.chdir(old_cwd)
+
+    def test_compose_file_ignored_when_no_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                # No compose files in CWD
+                result = docker.compose_default_files()
+                self.assertEqual(result, [])
+            finally:
+                os.chdir(old_cwd)
+
 
 class TestSkipFlagArgs(unittest.TestCase):
     def test_boolean_flag_does_not_consume(self):

@@ -512,11 +512,23 @@ def strip_file_args(argv):
 
 def compose_default_files():
     """
-    Get list of default compose filenames that exist in current directory.
+    Get list of compose files to use.
+    
+    Checks COMPOSE_FILE env var first, then falls back to default
+    compose filenames in the current directory.
     
     Returns:
-        list: List of existing compose filenames
+        list: List of existing compose file paths
     """
+    compose_file = os.environ.get("COMPOSE_FILE")
+    if compose_file:
+        paths = []
+        for f in compose_file.split(os.pathsep):
+            f = f.strip()
+            if f and os.path.exists(f):
+                paths.append(f)
+        return paths
+
     return [
         c
         for c in (
