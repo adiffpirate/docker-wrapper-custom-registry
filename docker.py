@@ -472,12 +472,12 @@ def _run_build(cmd_list, rest, dockerfile_arg="-f"):
     dockerfile, out = _extract_dockerfile(build_args)
 
     if dockerfile is not None:
-        run_real(
+        sys.exit(run_real(
             [*cmd_list, dockerfile_arg, rewrite_dockerfile(dockerfile), *out],
             env=env_with_buildkit_off(),
-        )
+        ))
 
-    run_real([*cmd_list, *rest], env=env_with_buildkit_off())
+    sys.exit(run_real([*cmd_list, *rest], env=env_with_buildkit_off()))
 
 
 def strip_file_args(argv):
@@ -549,10 +549,10 @@ def run_real(argv, env=None):
         env (dict): Environment variables to use
         
     Returns:
-        None: Exits with the return code of the subprocess
+        int: Return code of the subprocess
     """
     result = subprocess.run([REAL, *argv], env=env)
-    sys.exit(result.returncode)
+    return result.returncode
 
 
 def main():
@@ -570,23 +570,23 @@ def main():
 
     # Handle commands that rewrite first image argument
     if cmd in {"pull", "run", "create"}:
-        run_real([cmd, *rewrite_first_image(rest)])
+        sys.exit(run_real([cmd, *rewrite_first_image(rest)]))
 
     # Handle push command with special handling for --all-tags flag
     if cmd == "push":
-        run_real([cmd, *rewrite_push_image(rest)])
+        sys.exit(run_real([cmd, *rewrite_push_image(rest)]))
 
     # Handle commands that rewrite all image arguments
     if cmd in {"rmi", "save"}:
-        run_real([cmd, *rewrite_all_images(rest)])
+        sys.exit(run_real([cmd, *rewrite_all_images(rest)]))
 
     # Handle tag command with two positional image arguments
     if cmd == "tag":
-        run_real([cmd, *rewrite_tag_args(rest)])
+        sys.exit(run_real([cmd, *rewrite_tag_args(rest)]))
 
     # Handle commit command with optional repository argument
     if cmd == "commit":
-        run_real([cmd, *rewrite_commit_args(rest)])
+        sys.exit(run_real([cmd, *rewrite_commit_args(rest)]))
 
     # Handle build command
     if cmd == "build":
@@ -595,7 +595,7 @@ def main():
     # Handle buildx commands
     if cmd == "buildx":
         if not rest:
-            run_real(argv)
+            sys.exit(run_real(argv))
 
         sub = rest[0]
         subrest = rest[1:]
@@ -610,14 +610,14 @@ def main():
                 temps = [rewrite_compose_file(f) for f in files]
                 env = env_with_buildkit_off()
                 env["COMPOSE_FILE"] = os.pathsep.join(temps)
-                run_real([cmd, sub, *files_rest], env=env)
+                sys.exit(run_real([cmd, sub, *files_rest], env=env))
 
-            run_real([cmd, sub, *subrest], env=env_with_buildkit_off())
+            sys.exit(run_real([cmd, sub, *subrest], env=env_with_buildkit_off()))
 
     # Handle builder commands
     if cmd == "builder":
         if not rest:
-            run_real(argv)
+            sys.exit(run_real(argv))
 
         sub = rest[0]
         subrest = rest[1:]
@@ -625,7 +625,7 @@ def main():
         if sub == "build":
             _run_build([cmd, sub], subrest)
 
-        run_real([cmd, *rest])
+        sys.exit(run_real([cmd, *rest]))
 
     # Handle compose commands
     if cmd == "compose":
@@ -635,32 +635,32 @@ def main():
             temps = [rewrite_compose_file(f) for f in files]
             env = env_with_buildkit_off()
             env["COMPOSE_FILE"] = os.pathsep.join(temps)
-            run_real([cmd, *rest2], env=env)
+            sys.exit(run_real([cmd, *rest2], env=env))
 
-        run_real([cmd, *rest2], env=env_with_buildkit_off())
+        sys.exit(run_real([cmd, *rest2], env=env_with_buildkit_off()))
 
-    # Handle image and container subcommands
+   # Handle image and container subcommands
     if cmd in {"image", "container"} and rest:
         sub = rest[0]
         subrest = rest[1:]
         if sub in {"pull", "run", "create"}:
-            run_real([cmd, sub, *rewrite_first_image(subrest)])
+            sys.exit(run_real([cmd, sub, *rewrite_first_image(subrest)]))
         if sub == "rm":
-            run_real([cmd, sub, *rewrite_all_images(subrest)])
+            sys.exit(run_real([cmd, sub, *rewrite_all_images(subrest)]))
         if sub == "push":
-            run_real([cmd, sub, *rewrite_push_image(subrest)])
+            sys.exit(run_real([cmd, sub, *rewrite_push_image(subrest)]))
         if sub == "save":
-            run_real([cmd, sub, *rewrite_all_images(subrest)])
+            sys.exit(run_real([cmd, sub, *rewrite_all_images(subrest)]))
         if sub == "tag":
-            run_real([cmd, sub, *rewrite_tag_args(subrest)])
+            sys.exit(run_real([cmd, sub, *rewrite_tag_args(subrest)]))
         if sub == "commit":
-            run_real([cmd, sub, *rewrite_commit_args(subrest)])
+            sys.exit(run_real([cmd, sub, *rewrite_commit_args(subrest)]))
         if sub == "build":
             _run_build([cmd, sub], subrest)
-        run_real([cmd, *rest])
+        sys.exit(run_real([cmd, *rest]))
 
     # Default case - pass through unchanged
-    run_real(argv)
+    sys.exit(run_real(argv))
 
 
 if __name__ == "__main__":
