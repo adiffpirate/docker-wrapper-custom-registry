@@ -21,10 +21,7 @@ import subprocess
 import sys
 import tempfile
 
-try:
-    import yaml
-except Exception:
-    yaml = None
+import yaml
 
 LOG_LEVEL = os.environ.get("DOCKER_WRAPPER_LOG_LEVEL", "WARNING").upper()
 debug_mode = os.environ.get("DOCKER_WRAPPER_DEBUG", "").lower() in ("1", "true", "yes")
@@ -477,12 +474,7 @@ def rewrite_compose_file(path: str, registry: str = None, debug: bool = False):
     if registry is None:
         registry = REGISTRY
 
-    logger.debug("rewrite_compose_file: path=%s, registry=%s, yaml_available=%s",
-                 path, registry, yaml is not None)
-
-    if yaml is None:
-        logger.debug("rewrite_compose_file: yaml module not available, returning original path")
-        return path
+    logger.debug("rewrite_compose_file: path=%s, registry=%s", path, registry)
 
     if not os.path.exists(path):
         logger.debug("rewrite_compose_file: path does not exist: %s", path)
