@@ -108,6 +108,20 @@ class TestPull(unittest.TestCase):
             args = parse_docker_cmd(stdout)
             self.assertEqual(args, ["pull", "10.0.2.100:5000/python:3.11"])
 
+    def test_untagged_image(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(["pull", "python"], real_path=real_path)
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["pull", "10.0.2.100:5000/python"])
+
+    def test_untagged_ubuntu(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(["pull", "ubuntu"], real_path=real_path)
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["pull", "10.0.2.100:5000/ubuntu"])
+
 
 class TestRun(unittest.TestCase):
     def test_unqualified_image(self):
@@ -207,6 +221,22 @@ class TestRun(unittest.TestCase):
             args = parse_docker_cmd(stdout)
             self.assertEqual(args, ["run", "-t", "-e=FOO=BAR", "10.0.2.100:5000/python:3.11"])
 
+    def test_untagged_image(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(["run", "python"], real_path=real_path)
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["run", "10.0.2.100:5000/python"])
+
+    def test_untagged_with_flag(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["run", "--rm", "ubuntu"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["run", "--rm", "10.0.2.100:5000/ubuntu"])
+
 
 class TestCreate(unittest.TestCase):
     def test_unqualified_image(self):
@@ -224,6 +254,13 @@ class TestCreate(unittest.TestCase):
             self.assertEqual(rc, 0)
             args = parse_docker_cmd(stdout)
             self.assertEqual(args, ["create", "registry.example.com/app:1.0"])
+
+    def test_untagged_image(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(["create", "alpine"], real_path=real_path)
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["create", "10.0.2.100:5000/alpine"])
 
 
 class TestRmi(unittest.TestCase):
@@ -260,6 +297,22 @@ class TestRmi(unittest.TestCase):
             self.assertEqual(rc, 0)
             args = parse_docker_cmd(stdout)
             self.assertEqual(args, ["rmi", "10.0.2.100:5000/python:3.11"])
+
+    def test_untagged_image(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(["rmi", "python"], real_path=real_path)
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["rmi", "10.0.2.100:5000/python"])
+
+    def test_multiple_untagged_images(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["rmi", "python", "ubuntu"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["rmi", "10.0.2.100:5000/python", "10.0.2.100:5000/ubuntu"])
 
 
 class TestImageRm(unittest.TestCase):
@@ -496,6 +549,22 @@ class TestSave(unittest.TestCase):
             self.assertEqual(rc, 0)
             args = parse_docker_cmd(stdout)
             self.assertEqual(args, ["save", "--output=out.tar", "10.0.2.100:5000/python:3.11"])
+
+    def test_untagged_image(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(["save", "python"], real_path=real_path)
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["save", "10.0.2.100:5000/python"])
+
+    def test_multiple_untagged_images(self):
+        with MockDockerReal() as real_path:
+            stdout, stderr, rc = run_wrapper(
+                ["save", "python", "ubuntu", "alpine"], real_path=real_path
+            )
+            self.assertEqual(rc, 0)
+            args = parse_docker_cmd(stdout)
+            self.assertEqual(args, ["save", "10.0.2.100:5000/python", "10.0.2.100:5000/ubuntu", "10.0.2.100:5000/alpine"])
 
 
 class TestImageSave(unittest.TestCase):

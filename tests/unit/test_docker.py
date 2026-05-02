@@ -87,6 +87,18 @@ class TestRewrite(unittest.TestCase):
         result = docker.rewrite("ubuntu", registry="10.0.2.100:5000")
         self.assertEqual(result, "10.0.2.100:5000/ubuntu")
 
+    def test_untagged_python(self):
+        result = docker.rewrite("python", registry="10.0.2.100:5000")
+        self.assertEqual(result, "10.0.2.100:5000/python")
+
+    def test_untagged_custom_image(self):
+        result = docker.rewrite("myapp", registry="10.0.2.100:5000")
+        self.assertEqual(result, "10.0.2.100:5000/myapp")
+
+    def test_untagged_scratch_unchanged(self):
+        result = docker.rewrite("scratch", registry="10.0.2.100:5000")
+        self.assertEqual(result, "scratch")
+
 
 class TestRewriteAllImages(unittest.TestCase):
     def test_plain(self):
@@ -109,6 +121,18 @@ class TestRewriteAllImages(unittest.TestCase):
     def test_qualified_unchanged(self):
         result = docker.rewrite_all_images(["localhost/foo", "python:3.11"], registry="10.0.2.100:5000")
         self.assertEqual(result, ["localhost/foo", "10.0.2.100:5000/python:3.11"])
+
+    def test_untagged_image(self):
+        result = docker.rewrite_all_images(["python"], registry="10.0.2.100:5000")
+        self.assertEqual(result, ["10.0.2.100:5000/python"])
+
+    def test_multiple_untagged_images(self):
+        result = docker.rewrite_all_images(["python", "ubuntu", "alpine"], registry="10.0.2.100:5000")
+        self.assertEqual(result, ["10.0.2.100:5000/python", "10.0.2.100:5000/ubuntu", "10.0.2.100:5000/alpine"])
+
+    def test_mixed_tagged_and_untagged(self):
+        result = docker.rewrite_all_images(["python:3.11", "ubuntu", "alpine:3.18"], registry="10.0.2.100:5000")
+        self.assertEqual(result, ["10.0.2.100:5000/python:3.11", "10.0.2.100:5000/ubuntu", "10.0.2.100:5000/alpine:3.18"])
 
 
 class TestRewriteFirstImage(unittest.TestCase):
@@ -170,6 +194,14 @@ class TestRewriteFirstImage(unittest.TestCase):
         )
         self.assertEqual(result, ["-t", "-e=FOO=BAR", "10.0.2.100:5000/python:3.11"])
 
+    def test_untagged_image(self):
+        result = docker.rewrite_first_image(["python"], registry="10.0.2.100:5000")
+        self.assertEqual(result, ["10.0.2.100:5000/python"])
+
+    def test_untagged_with_name_flag(self):
+        result = docker.rewrite_first_image(["--name", "mycontainer", "ubuntu"], registry="10.0.2.100:5000")
+        self.assertEqual(result, ["--name", "mycontainer", "10.0.2.100:5000/ubuntu"])
+
 
 class TestRewriteDockerfileText(unittest.TestCase):
     def test_simple_from(self):
@@ -228,6 +260,21 @@ class TestRewriteDockerfileText(unittest.TestCase):
         text = "FROM python:3.11"
         result = docker.rewrite_dockerfile_text(text, registry="10.0.2.100:5000")
         self.assertEqual(result, "FROM 10.0.2.100:5000/python:3.11")
+
+    def test_from_untagged_image(self):
+        text = "FROM python\nRUN echo hello\n"
+        result = docker.rewrite_dockerfile_text(text, registry="10.0.2.100:5000")
+        self.assertEqual(result, "FROM 10.0.2.100:5000/python\nRUN echo hello\n")
+
+    def test_from_untagged_scratch_unchanged(self):
+        text = "FROM scratch\n"
+        result = docker.rewrite_dockerfile_text(text, registry="10.0.2.100:5000")
+        self.assertEqual(result, "FROM scratch\n")
+
+    def test_from_untagged_with_as(self):
+        text = "FROM ubuntu AS builder\n"
+        result = docker.rewrite_dockerfile_text(text, registry="10.0.2.100:5000")
+        self.assertEqual(result, "FROM 10.0.2.100:5000/ubuntu AS builder\n")
 
 
 class TestStripFileArgs(unittest.TestCase):
