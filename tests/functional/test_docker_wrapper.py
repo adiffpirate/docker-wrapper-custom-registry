@@ -122,8 +122,8 @@ class TestRun(unittest.TestCase):
             stdout, stderr, rc = run_wrapper(["run", "-t", "python:3.11"], real_path=real_path)
             self.assertEqual(rc, 0)
             args = parse_docker_cmd(stdout)
-            # -t is treated as a flag; next non-flag token is skipped
-            self.assertEqual(args, ["run", "-t", "python:3.11"])
+            # -t is a boolean flag, so python:3.11 gets rewritten
+            self.assertEqual(args, ["run", "-t", "10.0.2.100:5000/python:3.11"])
 
     def test_with_flag_long(self):
         with MockDockerReal() as real_path:

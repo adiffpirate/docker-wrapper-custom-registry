@@ -33,6 +33,21 @@ if not REGISTRY:
     sys.exit(1)
 TEMP_PATHS = []
 
+# Boolean flags that don't consume the next argument
+_BOOLEAN_FLAGS = {
+    "--all", "-a", "--attach",
+    "--detach", "-d",
+    "--force-pull", "--force-rm",
+    "--help", "-h",
+    "--interactive", "-i",
+    "--no-pull",
+    "--privileged",
+    "--quiet", "-q",
+    "--rm",
+    "--tty", "-t", "-T",
+    "--version",
+}
+
 
 def cleanup():
     """Clean up temporary files created during image rewriting."""
@@ -84,6 +99,9 @@ def _skip_flag_args(args, i):
             # flags with = have their value embedded (e.g. -e=FOO=BAR, --name=mycontainer)
             # so only advance by 1
             if "=" in token:
+                i += 1
+            # known boolean flags don't consume the next argument
+            elif token in _BOOLEAN_FLAGS:
                 i += 1
             # skip next token if it's a value (not another flag)
             elif i + 1 < len(args) and not is_flag(args[i + 1]):
