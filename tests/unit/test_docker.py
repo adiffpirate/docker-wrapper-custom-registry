@@ -350,6 +350,24 @@ class TestRewriteComposeDoc(unittest.TestCase):
         result = docker.rewrite_compose_doc(doc, ".", registry="10.0.2.100:5000")
         self.assertEqual(result, ["item1", "item2"])
 
+    def test_build_dict_deep_copy(self):
+        doc = {
+            "services": {
+                "web": {
+                    "build": {
+                        "context": ".",
+                        "dockerfile": "Dockerfile",
+                        "args": {"VERSION": "1.0"},
+                        "labels": {"key": "value"},
+                    }
+                }
+            }
+        }
+        result = docker.rewrite_compose_doc(doc, ".", registry="10.0.2.100:5000")
+        # Modify the result - should not affect the original
+        result["services"]["web"]["build"]["args"]["VERSION"] = "2.0"
+        self.assertEqual(doc["services"]["web"]["build"]["args"]["VERSION"], "1.0")
+
 
 class TestComposeDefaultFiles(unittest.TestCase):
     def test_no_files(self):

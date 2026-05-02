@@ -14,6 +14,7 @@ Usage:
 The script expects /usr/bin/docker.real to exist (the actual docker binary).
 """
 import atexit
+import copy
 import os
 import subprocess
 import sys
@@ -367,7 +368,7 @@ def rewrite_compose_doc(doc, compose_dir: str, registry: str = REGISTRY):
                 out[k] = rewrite(v, registry)
             elif k == "build":
                 if isinstance(v, dict):
-                    vv = dict(v)
+                    vv = copy.deepcopy(v)
                     dockerfile = vv.get("dockerfile")
                     context = vv.get("context", ".")
 
