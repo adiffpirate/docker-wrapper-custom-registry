@@ -469,7 +469,7 @@ def rewrite_compose_file(path: str, registry: str = None, debug: bool = False):
         debug (bool): If True, log detailed debug information
         
     Returns:
-        str: Path to the rewritten file (original if yaml not available or no changes needed)
+        str: Path to the rewritten file
     """
     if registry is None:
         registry = REGISTRY
