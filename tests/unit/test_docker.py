@@ -87,6 +87,29 @@ class TestRewrite(unittest.TestCase):
         self.assertEqual(result, "10.0.2.100:5000/ubuntu")
 
 
+class TestRewriteAllImages(unittest.TestCase):
+    def test_plain(self):
+        result = docker.rewrite_all_images(["python:3.11"], registry="10.0.2.100:5000")
+        self.assertEqual(result, ["10.0.2.100:5000/python:3.11"])
+
+    def test_multiple_images(self):
+        result = docker.rewrite_all_images(["python:3.11", "alpine:3.18"], registry="10.0.2.100:5000")
+        self.assertEqual(result, ["10.0.2.100:5000/python:3.11", "10.0.2.100:5000/alpine:3.18"])
+
+    def test_with_flag_short(self):
+        # -t is treated as a flag that consumes the next token
+        result = docker.rewrite_all_images(["-t", "python:3.11", "alpine:3.18"], registry="10.0.2.100:5000")
+        self.assertEqual(result, ["-t", "python:3.11", "10.0.2.100:5000/alpine:3.18"])
+
+    def test_with_flag_equals(self):
+        result = docker.rewrite_all_images(["--output=out.tar", "python:3.11"], registry="10.0.2.100:5000")
+        self.assertEqual(result, ["--output=out.tar", "10.0.2.100:5000/python:3.11"])
+
+    def test_qualified_unchanged(self):
+        result = docker.rewrite_all_images(["localhost/foo", "python:3.11"], registry="10.0.2.100:5000")
+        self.assertEqual(result, ["localhost/foo", "10.0.2.100:5000/python:3.11"])
+
+
 class TestRewriteFirstImage(unittest.TestCase):
     def test_plain(self):
         result = docker.rewrite_first_image(["python:3.11"], registry="10.0.2.100:5000")

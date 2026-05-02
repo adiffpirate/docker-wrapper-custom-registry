@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+"""
+Docker CLI wrapper that rewrites image references to use a custom registry.
+
+This script intercepts docker commands and rewrites unqualified image references
+to use a custom registry address. It handles various Docker subcommands including:
+- pull, run, create, push, rmi, save, tag, commit
+- image subcommands (pull, run, create, push, rm, save, tag, commit, build)
+- compose and buildx commands
+
+Usage:
+    DOCKER_REGISTRY=10.0.2.100:5000 python3 docker.py <docker-args...>
+
+The script expects /usr/bin/docker.real to exist (the actual docker binary).
+"""
 import atexit
 import os
 import subprocess
@@ -21,6 +35,7 @@ TEMP_PATHS = []
 
 
 def cleanup():
+    """Clean up temporary files created during image rewriting."""
     for p in TEMP_PATHS:
         try:
             os.unlink(p)
@@ -32,10 +47,12 @@ atexit.register(cleanup)
 
 
 def is_flag(arg: str) -> bool:
+    """Check if argument is a flag (starts with - but not just "-")."""
     return arg.startswith("-") and arg != "-"
 
 
 def is_qualified(ref: str) -> bool:
+    """Check if image reference is already qualified (scratch, localhost, or has dot/port in host)."""
     if ref == "scratch":
         return True
     if "/" not in ref:
@@ -45,165 +62,183 @@ def is_qualified(ref: str) -> bool:
 
 
 def rewrite(ref: str, registry: str = REGISTRY) -> str:
+    """Rewrite unqualified image reference to use custom registry."""
     if ref.startswith(registry + "/") or is_qualified(ref):
         return ref
     return f"{registry}/{ref}"
 
 
-def rewrite_first_image(args, registry: str = REGISTRY):
-    out = list(args)
-
-    i = 0
-    while i < len(out):
-        token = out[i]
-
-        # skip flags
+def _skip_flag_args(args, i):
+    """
+    Skip flag arguments starting at index i.
+    
+    Returns the next index after all flag arguments have been processed.
+    Handles:
+    - Flags with embedded values (e.g., --file=/path)
+    - Flags with separate values (e.g., -t python:3.11)
+    """
+    while i < len(args):
+        token = args[i]
+        
         if is_flag(token):
             # flags with = have their value embedded (e.g. -e=FOO=BAR, --name=mycontainer)
             # so only advance by 1
             if "=" in token:
                 i += 1
             # skip next token if it's a value (not another flag)
-            elif i + 1 < len(out) and not is_flag(out[i + 1]):
+            elif i + 1 < len(args) and not is_flag(args[i + 1]):
                 i += 2
             else:
                 i += 1
             continue
+        
+        # Found non-flag, return current index
+        break
+    
+    return i
 
-        # first non-flag after skipping flag+value pairs = IMAGE
+
+def rewrite_first_image(args, registry: str = REGISTRY):
+    """
+    Rewrite the first non-flag image argument.
+    
+    Handles flags like -t, --name, etc. that consume the next argument.
+    For flags with embedded values (e.g., --file=/path), the value is part of the flag.
+    """
+    out = list(args)
+    
+    # Skip all leading flags to find first non-flag argument
+    i = _skip_flag_args(out, 0)
+    
+    # If we found a non-flag argument, rewrite it as an image reference
+    if i < len(out):
         out[i] = rewrite(out[i], registry)
-        return out
-
+    
     return out
 
 
 def rewrite_push_image(args, registry: str = REGISTRY):
-    """Rewrite the first non-flag image argument, treating --all-tags as boolean."""
+    """
+    Rewrite the first non-flag image argument, treating --all-tags as boolean.
+    
+    Handles special case for --all-tags/-a flag which doesn't consume arguments.
+    """
     out = list(args)
-
+    
     i = 0
     while i < len(out):
         token = out[i]
-
+        
         if is_flag(token):
+            # Special handling for --all-tags/-a flags that don't take values
             if token in ("--all-tags", "-a"):
                 i += 1
                 continue
+            
+            # Handle regular flags with embedded values (e.g., --file=/path)
             if "=" in token:
                 i += 1
+            # Handle flags with separate values (e.g., -t python:3.11)
             elif i + 1 < len(out) and not is_flag(out[i + 1]):
                 i += 2
             else:
                 i += 1
             continue
-
+        
+        # Found first non-flag argument, rewrite it as an image reference
         out[i] = rewrite(out[i], registry)
         return out
-
+    
     return out
 
 
 def rewrite_tag_args(args, registry: str = REGISTRY):
-    """Rewrite SOURCE_IMAGE and TARGET_IMAGE for docker tag.
-
+    """
+    Rewrite SOURCE_IMAGE and TARGET_IMAGE for docker tag.
+    
     docker tag [OPTIONS] SOURCE_IMAGE[:TAG] TARGET_IMAGE[:TAG]
     Both positional args are image references that need rewriting.
     """
     out = list(args)
-
+    
     # Skip flags to find first positional (SOURCE_IMAGE)
-    i = 0
-    while i < len(out) and is_flag(out[i]):
-        if "=" in out[i]:
-            i += 1
-        elif i + 1 < len(out) and not is_flag(out[i + 1]):
-            i += 2
-        else:
-            i += 1
-
+    i = _skip_flag_args(out, 0)
+    
     # First positional = SOURCE_IMAGE
     if i < len(out):
         out[i] = rewrite(out[i], registry)
         i += 1
-
+    
     # Skip any remaining flags between source and target
-    while i < len(out) and is_flag(out[i]):
-        if "=" in out[i]:
-            i += 1
-        elif i + 1 < len(out) and not is_flag(out[i + 1]):
-            i += 2
-        else:
-            i += 1
-
+    i = _skip_flag_args(out, i)
+    
     # Second positional = TARGET_IMAGE
     if i < len(out):
         out[i] = rewrite(out[i], registry)
-
+    
     return out
 
 
 def rewrite_commit_args(args, registry: str = REGISTRY):
-    """Rewrite the optional REPOSITORY[:TAG] for docker commit.
-
+    """
+    Rewrite the optional REPOSITORY[:TAG] for docker commit.
+    
     docker commit [OPTIONS] CONTAINER [REPOSITORY[:TAG]]
     The first positional is the container name (not rewritten).
     The second positional (if present) is an image ref (rewritten).
     """
     out = list(args)
-
+    
     # Skip flags to find first positional (CONTAINER)
-    i = 0
-    while i < len(out) and is_flag(out[i]):
-        if "=" in out[i]:
-            i += 1
-        elif i + 1 < len(out) and not is_flag(out[i + 1]):
-            i += 2
-        else:
-            i += 1
-
+    i = _skip_flag_args(out, 0)
+    
     # First positional = CONTAINER (skip it)
     if i < len(out):
         i += 1
-
+    
     # Skip any remaining flags
-    while i < len(out) and is_flag(out[i]):
-        if "=" in out[i]:
-            i += 1
-        elif i + 1 < len(out) and not is_flag(out[i + 1]):
-            i += 2
-        else:
-            i += 1
-
+    i = _skip_flag_args(out, i)
+    
     # Second positional = REPOSITORY[:TAG] (optional, rewrite if present)
     if i < len(out):
         out[i] = rewrite(out[i], registry)
-
+    
     return out
 
 
 def rewrite_all_images(args, registry: str = REGISTRY):
+    """
+    Rewrite all non-flag image arguments.
+    
+    Handles flags like -t, --name, etc. that consume the next argument.
+    For flags with embedded values (e.g., --file=/path), the value is part of the flag.
+    """
     out = list(args)
-
+    
     i = 0
     while i < len(out):
-        token = out[i]
-
-        if is_flag(token):
-            if "=" in token:
-                i += 1
-            elif i + 1 < len(out) and not is_flag(out[i + 1]):
-                i += 2
-            else:
-                i += 1
-            continue
-
-        out[i] = rewrite(out[i], registry)
-        i += 1
-
+        # Skip all flags at current position
+        i = _skip_flag_args(out, i)
+        
+        # If we found a non-flag argument, rewrite it as an image reference
+        if i < len(out):
+            out[i] = rewrite(out[i], registry)
+            i += 1
+    
     return out
 
 
 def rewrite_dockerfile_text(text: str, registry: str = REGISTRY) -> str:
+    """
+    Rewrite FROM lines in Dockerfile text to use custom registry.
+    
+    Args:
+        text (str): The Dockerfile content as a string
+        registry (str): The registry to prepend to unqualified images
+        
+    Returns:
+        str: The modified Dockerfile content with FROM lines rewritten
+    """
     out = []
 
     for line in text.splitlines(True):
@@ -237,6 +272,16 @@ def rewrite_dockerfile_text(text: str, registry: str = REGISTRY) -> str:
 
 
 def temp_file_same_dir(src_path: str, suffix: str):
+    """
+    Create a temporary file in the same directory as the source file.
+    
+    Args:
+        src_path (str): Path to the source file
+        suffix (str): Suffix to append to the temporary filename
+        
+    Returns:
+        str: Path to the created temporary file
+    """
     src_path = os.path.abspath(src_path)
     d = os.path.dirname(src_path) or "."
     base = os.path.basename(src_path)
@@ -252,6 +297,16 @@ def temp_file_same_dir(src_path: str, suffix: str):
 
 
 def rewrite_dockerfile(path: str, registry: str = REGISTRY) -> str:
+    """
+    Rewrite FROM lines in a Dockerfile to use custom registry.
+    
+    Args:
+        path (str): Path to the Dockerfile
+        registry (str): The registry to prepend to unqualified images
+        
+    Returns:
+        str: Path to the rewritten file (original if no changes needed)
+    """
     if not os.path.exists(path):
         return path
 
@@ -270,6 +325,17 @@ def rewrite_dockerfile(path: str, registry: str = REGISTRY) -> str:
 
 
 def rewrite_compose_doc(doc, compose_dir: str, registry: str = REGISTRY):
+    """
+    Recursively rewrite image references in compose document.
+    
+    Args:
+        doc: The compose document (dict, list, or other)
+        compose_dir (str): Directory containing the compose file
+        registry (str): The registry to prepend to unqualified images
+        
+    Returns:
+        The modified compose document with image references rewritten
+    """
     if isinstance(doc, dict):
         out = {}
         for k, v in doc.items():
@@ -308,6 +374,16 @@ def rewrite_compose_doc(doc, compose_dir: str, registry: str = REGISTRY):
 
 
 def rewrite_compose_file(path: str, registry: str = REGISTRY) -> str:
+    """
+    Rewrite image references in a compose file to use custom registry.
+    
+    Args:
+        path (str): Path to the compose file
+        registry (str): The registry to prepend to unqualified images
+        
+    Returns:
+        str: Path to the rewritten file (original if yaml not available or no changes needed)
+    """
     if yaml is None or not os.path.exists(path):
         return path
 
@@ -325,7 +401,15 @@ def rewrite_compose_file(path: str, registry: str = REGISTRY) -> str:
 
 
 def _extract_dockerfile(args):
-    """Extract the Dockerfile path from build args. Returns (dockerfile_path, remaining_args)."""
+    """
+    Extract the Dockerfile path from build args.
+    
+    Args:
+        args (list): Command line arguments
+        
+    Returns:
+        tuple: (dockerfile_path, remaining_args)
+    """
     dockerfile = None
     out = []
     i = 0
@@ -347,9 +431,13 @@ def _extract_dockerfile(args):
 
 
 def _run_build(cmd_list, rest, dockerfile_arg="-f"):
-    """Run a build command with Dockerfile FROM rewriting.
-
-    cmd_list: list of command tokens, e.g. ["build"] or ["image", "build"]
+    """
+    Run a build command with Dockerfile FROM rewriting.
+    
+    Args:
+        cmd_list (list): List of command tokens, e.g. ["build"] or ["image", "build"]
+        rest (list): Remaining arguments
+        dockerfile_arg (str): The flag used for specifying Dockerfile (default: "-f")
     """
     build_args = list(rest)
     dockerfile, out = _extract_dockerfile(build_args)
@@ -364,6 +452,15 @@ def _run_build(cmd_list, rest, dockerfile_arg="-f"):
 
 
 def strip_file_args(argv):
+    """
+    Strip file arguments from command line.
+    
+    Args:
+        argv (list): Command line arguments
+        
+    Returns:
+        tuple: (remaining_args, file_paths)
+    """
     out = []
     files = []
     i = 0
@@ -383,6 +480,12 @@ def strip_file_args(argv):
 
 
 def compose_default_files():
+    """
+    Get list of default compose filenames that exist in current directory.
+    
+    Returns:
+        list: List of existing compose filenames
+    """
     return [
         c
         for c in (
@@ -396,6 +499,12 @@ def compose_default_files():
 
 
 def env_with_buildkit_off():
+    """
+    Create environment with BuildKit and Compose CLI build disabled.
+    
+    Returns:
+        dict: Environment dictionary with BUILDKIT flags set to 0
+    """
     env = os.environ.copy()
     env["DOCKER_BUILDKIT"] = "0"
     env["COMPOSE_DOCKER_CLI_BUILD"] = "0"
@@ -403,11 +512,26 @@ def env_with_buildkit_off():
 
 
 def run_real(argv, env=None):
+    """
+    Execute the real docker command with given arguments.
+    
+    Args:
+        argv (list): Arguments to pass to docker
+        env (dict): Environment variables to use
+        
+    Returns:
+        None: Exits with the return code of the subprocess
+    """
     result = subprocess.run([REAL, *argv], env=env)
     sys.exit(result.returncode)
 
 
 def main():
+    """
+    Main entry point for the docker wrapper.
+    
+    Parses command line arguments and routes to appropriate handlers.
+    """
     argv = sys.argv[1:]
     if not argv:
         os.execv(REAL, [REAL])
@@ -415,27 +539,31 @@ def main():
     cmd = argv[0]
     rest = argv[1:]
 
+    # Handle commands that rewrite first image argument
     if cmd in {"pull", "run", "create"}:
         run_real([cmd, *rewrite_first_image(rest)])
 
+    # Handle push command with special handling for --all-tags flag
     if cmd == "push":
         run_real([cmd, *rewrite_push_image(rest)])
 
-    if cmd == "rmi":
+    # Handle commands that rewrite all image arguments
+    if cmd in {"rmi", "save"}:
         run_real([cmd, *rewrite_all_images(rest)])
 
+    # Handle tag command with two positional image arguments
     if cmd == "tag":
         run_real([cmd, *rewrite_tag_args(rest)])
 
+    # Handle commit command with optional repository argument
     if cmd == "commit":
         run_real([cmd, *rewrite_commit_args(rest)])
 
-    if cmd == "save":
-        run_real([cmd, *rewrite_all_images(rest)])
-
+    # Handle build command
     if cmd == "build":
         _run_build([cmd], rest)
 
+    # Handle buildx commands
     if cmd == "buildx":
         if not rest:
             run_real(argv)
@@ -457,6 +585,7 @@ def main():
 
             run_real([cmd, sub, *subrest], env=env_with_buildkit_off())
 
+    # Handle builder commands
     if cmd == "builder":
         if not rest:
             run_real(argv)
@@ -469,6 +598,7 @@ def main():
 
         run_real([cmd, *rest])
 
+    # Handle compose commands
     if cmd == "compose":
         rest2, explicit = strip_file_args(rest)
         files = explicit or compose_default_files()
@@ -480,6 +610,7 @@ def main():
 
         run_real([cmd, *rest2], env=env_with_buildkit_off())
 
+    # Handle image and container subcommands
     if cmd in {"image", "container"} and rest:
         sub = rest[0]
         subrest = rest[1:]
@@ -499,6 +630,7 @@ def main():
             _run_build([cmd, sub], subrest)
         run_real([cmd, *rest])
 
+    # Default case - pass through unchanged
     run_real(argv)
 
 

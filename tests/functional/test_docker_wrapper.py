@@ -25,6 +25,9 @@ def run_wrapper(args, registry=REGISTRY, real_path=None, cwd=None, extra_env=Non
     env = os.environ.copy()
     if registry is not None:
         env["DOCKER_REGISTRY"] = registry
+    elif "DOCKER_REGISTRY" in env:
+        # Remove it if explicitly set to None to simulate missing variable
+        del env["DOCKER_REGISTRY"]
     if real_path:
         env["DOCKER_REAL"] = real_path
     if extra_env:
