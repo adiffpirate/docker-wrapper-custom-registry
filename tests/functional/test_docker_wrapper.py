@@ -408,6 +408,15 @@ class TestMissingEnv(unittest.TestCase):
             self.assertIn("DOCKER_REGISTRY", stderr)
             self.assertIn("not set", stderr)
 
+    def test_missing_docker_real(self):
+        stdout, stderr, rc = run_wrapper(
+            ["pull", "python:3.11"],
+            real_path="/nonexistent/path/to/docker.real",
+        )
+        self.assertNotEqual(rc, 0)
+        self.assertIn("docker.real", stderr)
+        self.assertIn("not found", stderr)
+
 
 class TestBuildKitDisabled(unittest.TestCase):
     def test_build_has_buildkit_off(self):

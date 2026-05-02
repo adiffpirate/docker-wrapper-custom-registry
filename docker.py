@@ -33,6 +33,11 @@ if not REGISTRY:
     sys.exit(1)
 TEMP_PATHS = []
 
+if not os.path.isfile(REAL):
+    print(f"Error: docker.real binary not found at '{REAL}'.", file=sys.stderr)
+    print("Set DOCKER_REAL environment variable to the correct path.", file=sys.stderr)
+    sys.exit(1)
+
 # Boolean flags that don't consume the next argument
 _BOOLEAN_FLAGS = {
     "--all", "-a", "--attach",
