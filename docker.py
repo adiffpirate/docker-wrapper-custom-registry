@@ -26,10 +26,16 @@ try:
 except Exception:
     yaml = None
 
-LOG_LEVEL = os.environ.get("DOCKER_LOG_LEVEL", "WARNING").upper()
+LOG_LEVEL = os.environ.get("DOCKER_WRAPPER_LOG_LEVEL", "WARNING").upper()
+debug_mode = os.environ.get("DOCKER_WRAPPER_DEBUG", "").lower() in ("1", "true", "yes")
+
+if debug_mode:
+    effective_level = logging.DEBUG
+else:
+    effective_level = getattr(logging, LOG_LEVEL, logging.WARNING)
 
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.WARNING),
+    level=effective_level,
     format="%(levelname)s: %(message)s",
     stream=sys.stderr,
 )
@@ -73,11 +79,18 @@ def is_flag(arg: str) -> bool:
 def is_qualified(ref: str) -> bool:
     """Check if image reference is already qualified (scratch, localhost, or has dot/port in host)."""
     if ref == "scratch":
+        logger.debug("is_qualified: %s -> True (scratch)", ref)
         return True
     if "/" not in ref:
+        logger.debug("is_qualified: %s -> False (no slash)", ref)
         return False
     head = ref.split("/", 1)[0]
-    return head == "localhost" or "." in head or ":" in head
+    qualified = head == "localhost" or "." in head or ":" in head
+    if qualified:
+        logger.debug("is_qualified: %s -> True (head=%s)", ref, head)
+    else:
+        logger.debug("is_qualified: %s -> False (head=%s)", ref, head)
+    return qualified
 
 
 def rewrite(ref: str, registry: str = None) -> str:
@@ -85,8 +98,11 @@ def rewrite(ref: str, registry: str = None) -> str:
     if registry is None:
         registry = REGISTRY
     if ref.startswith(registry + "/") or is_qualified(ref):
+        logger.debug("rewrite: %s -> %s (unchanged, already qualified or prefixed)", ref, ref)
         return ref
-    return f"{registry}/{ref}"
+    result = f"{registry}/{ref}"
+    logger.debug("rewrite: %s -> %s", ref, result)
+    return result
 
 
 def _skip_flag_args(args, i):
@@ -98,6 +114,7 @@ def _skip_flag_args(args, i):
     - Flags with embedded values (e.g., --file=/path)
     - Flags with separate values (e.g., -t python:3.11)
     """
+    start_i = i
     while i < len(args):
         token = args[i]
         
@@ -105,20 +122,27 @@ def _skip_flag_args(args, i):
             # flags with = have their value embedded (e.g. -e=FOO=BAR, --name=mycontainer)
             # so only advance by 1
             if "=" in token:
+                logger.debug("_skip_flag_args: %s -> flag with =, advance to %d", token, i + 1)
                 i += 1
             # known boolean flags don't consume the next argument
             elif token in _BOOLEAN_FLAGS:
+                logger.debug("_skip_flag_args: %s -> boolean flag, advance to %d", token, i + 1)
                 i += 1
             # skip next token if it's a value (not another flag)
             elif i + 1 < len(args) and not is_flag(args[i + 1]):
+                logger.debug("_skip_flag_args: %s -> flag with value %s, advance to %d", token, args[i + 1], i + 2)
                 i += 2
             else:
+                logger.debug("_skip_flag_args: %s -> unknown flag, advance to %d", token, i + 1)
                 i += 1
             continue
         
         # Found non-flag, return current index
+        logger.debug("_skip_flag_args: %s -> non-flag at index %d", token, i)
         break
     
+    if i != start_i:
+        logger.debug("_skip_flag_args: advanced from %d to %d", start_i, i)
     return i
 
 
@@ -133,6 +157,7 @@ def rewrite_first_image(args, registry: str = None):
         registry = REGISTRY
 
     out = list(args)
+    logger.debug("rewrite_first_image: args=%s, registry=%s", args, registry)
     
     # Skip all leading flags to find first non-flag argument
     i = _skip_flag_args(out, 0)
@@ -154,6 +179,7 @@ def rewrite_push_image(args, registry: str = None):
         registry = REGISTRY
 
     out = list(args)
+    logger.debug("rewrite_push_image: args=%s, registry=%s", args, registry)
     
     i = 0
     while i < len(out):
@@ -162,6 +188,7 @@ def rewrite_push_image(args, registry: str = None):
         if is_flag(token):
             # Special handling for --all-tags/-a flags that don't take values
             if token in ("--all-tags", "-a"):
+                logger.debug("rewrite_push_image: %s -> boolean flag (all-tags), skip", token)
                 i += 1
                 continue
             
@@ -193,6 +220,7 @@ def rewrite_tag_args(args, registry: str = None):
         registry = REGISTRY
 
     out = list(args)
+    logger.debug("rewrite_tag_args: args=%s, registry=%s", args, registry)
     
     # Skip flags to find first positional (SOURCE_IMAGE)
     i = _skip_flag_args(out, 0)
@@ -224,12 +252,14 @@ def rewrite_commit_args(args, registry: str = None):
         registry = REGISTRY
 
     out = list(args)
+    logger.debug("rewrite_commit_args: args=%s, registry=%s", args, registry)
     
     # Skip flags to find first positional (CONTAINER)
     i = _skip_flag_args(out, 0)
     
     # First positional = CONTAINER (skip it)
     if i < len(out):
+        logger.debug("rewrite_commit_args: skipping container arg at index %d", i)
         i += 1
     
     # Skip any remaining flags
@@ -253,6 +283,7 @@ def rewrite_all_images(args, registry: str = None):
         registry = REGISTRY
 
     out = list(args)
+    logger.debug("rewrite_all_images: args=%s, registry=%s", args, registry)
     
     i = 0
     while i < len(out):
@@ -282,6 +313,7 @@ def rewrite_dockerfile_text(text: str, registry: str = None) -> str:
         registry = REGISTRY
 
     out = []
+    from_count = 0
 
     for line in text.splitlines(True):
         if not line.lstrip().upper().startswith("FROM "):
@@ -307,9 +339,11 @@ def rewrite_dockerfile_text(text: str, registry: str = None) -> str:
             continue
 
         image = tokens[i]
+        from_count += 1
         rebuilt = [tokens[0], *tokens[1:i], rewrite(image, registry), *tokens[i + 1:]]
         out.append(prefix_ws + " ".join(rebuilt) + newline)
 
+    logger.debug("rewrite_dockerfile_text: processed %d FROM lines", from_count)
     return "".join(out)
 
 
@@ -335,6 +369,7 @@ def temp_file_same_dir(src_path: str, suffix: str):
     )
     os.close(fd)
     TEMP_PATHS.append(tmp)
+    logger.debug("temp_file_same_dir: %s -> %s", src_path, tmp)
     return tmp
 
 
@@ -352,7 +387,10 @@ def rewrite_dockerfile(path: str, registry: str = None):
     if registry is None:
         registry = REGISTRY
 
+    logger.debug("rewrite_dockerfile: path=%s, registry=%s", path, registry)
+
     if not os.path.exists(path):
+        logger.debug("rewrite_dockerfile: file does not exist: %s", path)
         return path
 
     with open(path, "r", encoding="utf-8") as f:
@@ -360,6 +398,7 @@ def rewrite_dockerfile(path: str, registry: str = None):
 
     rewritten = rewrite_dockerfile_text(original, registry)
     if rewritten == original:
+        logger.debug("rewrite_dockerfile: no changes needed, returning original")
         return path
 
     tmp = temp_file_same_dir(path, suffix=".Dockerfile")
@@ -404,6 +443,8 @@ def rewrite_compose_doc(doc, compose_dir: str, registry: str = None):
                         if not os.path.isabs(dockerfile_abs):
                             dockerfile_abs = os.path.normpath(os.path.join(context_abs, dockerfile_abs))
 
+                        logger.debug("rewrite_compose_doc: build dockerfile=%s -> %s (exists=%s)",
+                                     dockerfile, dockerfile_abs, os.path.exists(dockerfile_abs))
                         if os.path.exists(dockerfile_abs):
                             tmp_df = rewrite_dockerfile(dockerfile_abs, registry)
                             vv["dockerfile"] = tmp_df  # absolute path is safest
@@ -421,13 +462,14 @@ def rewrite_compose_doc(doc, compose_dir: str, registry: str = None):
     return doc
 
 
-def rewrite_compose_file(path: str, registry: str = None):
+def rewrite_compose_file(path: str, registry: str = None, debug: bool = False):
     """
     Rewrite image references in a compose file to use custom registry.
     
     Args:
         path (str): Path to the compose file
         registry (str): The registry to prepend to unqualified images
+        debug (bool): If True, log detailed debug information
         
     Returns:
         str: Path to the rewritten file (original if yaml not available or no changes needed)
@@ -435,22 +477,37 @@ def rewrite_compose_file(path: str, registry: str = None):
     if registry is None:
         registry = REGISTRY
 
-    if yaml is None or not os.path.exists(path):
+    logger.debug("rewrite_compose_file: path=%s, registry=%s, yaml_available=%s",
+                 path, registry, yaml is not None)
+
+    if yaml is None:
+        logger.debug("rewrite_compose_file: yaml module not available, returning original path")
+        return path
+
+    if not os.path.exists(path):
+        logger.debug("rewrite_compose_file: path does not exist: %s", path)
         return path
 
     compose_dir = os.path.dirname(os.path.abspath(path)) or "."
     with open(path, "r", encoding="utf-8") as f:
         docs = list(yaml.safe_load_all(f))
 
+    logger.debug("rewrite_compose_file: loaded %d YAML document(s): %s", len(docs), docs)
+
     new_docs = [rewrite_compose_doc(d, compose_dir, registry) if d is not None else None for d in docs]
 
     original_yaml = yaml.safe_dump_all(docs, sort_keys=False)
     new_yaml = yaml.safe_dump_all(new_docs, sort_keys=False)
 
+    logger.debug("rewrite_compose_file: original_yaml == new_yaml: %s", original_yaml == new_yaml)
     if original_yaml == new_yaml:
+        logger.debug("rewrite_compose_file: no changes detected, returning original path")
+        logger.debug("rewrite_compose_file: original_yaml:\n%s", original_yaml)
+        logger.debug("rewrite_compose_file: new_yaml:\n%s", new_yaml)
         return path
 
     tmp = temp_file_same_dir(path, suffix=".compose.yml")
+    logger.debug("rewrite_compose_file: created temp file: %s", tmp)
     with open(tmp, "w", encoding="utf-8") as f:
         yaml.safe_dump_all(new_docs, f, sort_keys=False)
 
@@ -474,16 +531,19 @@ def _extract_dockerfile(args):
         a = args[i]
         if a in ("-f", "--file") and i + 1 < len(args):
             dockerfile = args[i + 1]
+            logger.debug("_extract_dockerfile: found -f/--file=%s", dockerfile)
             i += 2
             continue
         if a.startswith("--file="):
             dockerfile = a.split("=", 1)[1]
+            logger.debug("_extract_dockerfile: found --file=%s", dockerfile)
             i += 1
             continue
         out.append(a)
         i += 1
     if dockerfile is None and os.path.exists("Dockerfile"):
         dockerfile = "Dockerfile"
+        logger.debug("_extract_dockerfile: default Dockerfile found in CWD")
     return dockerfile, out
 
 
@@ -500,11 +560,15 @@ def _run_build(cmd_list, rest, dockerfile_arg="-f"):
     dockerfile, out = _extract_dockerfile(build_args)
 
     if dockerfile is not None:
+        rewritten_df = rewrite_dockerfile(dockerfile)
+        logger.debug("_run_build: cmd_list=%s, dockerfile=%s -> %s, remaining=%s",
+                     cmd_list, dockerfile, rewritten_df, out)
         sys.exit(run_real(
-            [*cmd_list, dockerfile_arg, rewrite_dockerfile(dockerfile), *out],
+            [*cmd_list, dockerfile_arg, rewritten_df, *out],
             env=env_with_buildkit_off(),
         ))
 
+    logger.debug("_run_build: cmd_list=%s, no dockerfile found, using rest=%s", cmd_list, rest)
     sys.exit(run_real([*cmd_list, *rest], env=env_with_buildkit_off()))
 
 
@@ -525,10 +589,12 @@ def strip_file_args(argv):
         a = argv[i]
         if a in ("-f", "--file") and i + 1 < len(argv):
             files.append(argv[i + 1])
+            logger.debug("strip_file_args: extracted file=%s", argv[i + 1])
             i += 2
             continue
         if a.startswith("--file="):
             files.append(a.split("=", 1)[1])
+            logger.debug("strip_file_args: extracted file=%s", a.split("=", 1)[1])
             i += 1
             continue
         out.append(a)
@@ -553,9 +619,10 @@ def compose_default_files():
             f = f.strip()
             if f and os.path.exists(f):
                 paths.append(f)
+        logger.debug("compose_default_files: COMPOSE_FILE=%s -> found=%s", compose_file, paths)
         return paths
 
-    return [
+    found = [
         c
         for c in (
             "compose.yaml",
@@ -565,6 +632,8 @@ def compose_default_files():
         )
         if os.path.exists(c)
     ]
+    logger.debug("compose_default_files: default search -> found=%s", found)
+    return found
 
 
 def env_with_buildkit_off():
@@ -594,8 +663,10 @@ def run_real(argv, env=None, timeout=None):
     """
     if timeout is None:
         timeout = DEFAULT_TIMEOUT
+    logger.debug("run_real: REAL=%s, argv=%s, timeout=%s", REAL, argv, timeout)
     try:
         result = subprocess.run([REAL, *argv], env=env, timeout=timeout)
+        logger.debug("run_real: returned %s", result.returncode)
         return result.returncode
     except subprocess.TimeoutExpired:
         logger.error("docker command timed out after %ss", timeout)
@@ -612,6 +683,7 @@ def main():
     REAL = os.environ.get("DOCKER_REAL", "/usr/bin/docker.real")
     REGISTRY = os.environ.get("DOCKER_REGISTRY")
     DEFAULT_TIMEOUT = int(os.environ.get("DOCKER_TIMEOUT", "300"))
+
     if not REGISTRY:
         logger.error("DOCKER_REGISTRY environment variable is not set.")
         logger.error("Set it to your local registry address, e.g.:")
@@ -623,43 +695,55 @@ def main():
         sys.exit(1)
 
     argv = sys.argv[1:]
+    logger.debug("main: argv=%s", argv)
+
     if not argv:
+        logger.debug("main: no args, execing docker.real directly")
         os.execv(REAL, [REAL])
 
     cmd = argv[0]
     rest = argv[1:]
+    logger.debug("main: cmd=%s, rest=%s", cmd, rest)
 
     # Handle commands that rewrite first image argument
     if cmd in {"pull", "run", "create"}:
+        logger.debug("main: routing to %s with first-image rewrite", cmd)
         sys.exit(run_real([cmd, *rewrite_first_image(rest)]))
 
     # Handle push command with special handling for --all-tags flag
     if cmd == "push":
+        logger.debug("main: routing to push with all-tags handling")
         sys.exit(run_real([cmd, *rewrite_push_image(rest)]))
 
     # Handle commands that rewrite all image arguments
     if cmd in {"rmi", "save"}:
+        logger.debug("main: routing to %s with all-images rewrite", cmd)
         sys.exit(run_real([cmd, *rewrite_all_images(rest)]))
 
     # Handle tag command with two positional image arguments
     if cmd == "tag":
+        logger.debug("main: routing to tag")
         sys.exit(run_real([cmd, *rewrite_tag_args(rest)]))
 
     # Handle commit command with optional repository argument
     if cmd == "commit":
+        logger.debug("main: routing to commit")
         sys.exit(run_real([cmd, *rewrite_commit_args(rest)]))
 
     # Handle build command
     if cmd == "build":
+        logger.debug("main: routing to build")
         _run_build([cmd], rest)
 
     # Handle buildx commands
     if cmd == "buildx":
         if not rest:
+            logger.debug("main: buildx with no subcommand, pass through")
             sys.exit(run_real(argv))
 
         sub = rest[0]
         subrest = rest[1:]
+        logger.debug("main: buildx subcmd=%s", sub)
 
         if sub == "build":
             _run_build([cmd, sub], subrest)
@@ -668,6 +752,7 @@ def main():
             files_rest, explicit = strip_file_args(subrest)
             files = explicit or compose_default_files()
             if files:
+                logger.debug("main: buildx bake: compose files=%s", files)
                 temps = [rewrite_compose_file(f) for f in files]
                 env = env_with_buildkit_off()
                 env["COMPOSE_FILE"] = os.pathsep.join(temps)
@@ -678,10 +763,12 @@ def main():
     # Handle builder commands
     if cmd == "builder":
         if not rest:
+            logger.debug("main: builder with no subcommand, pass through")
             sys.exit(run_real(argv))
 
         sub = rest[0]
         subrest = rest[1:]
+        logger.debug("main: builder subcmd=%s", sub)
 
         if sub == "build":
             _run_build([cmd, sub], subrest)
@@ -693,6 +780,7 @@ def main():
         rest2, explicit = strip_file_args(rest)
         files = explicit or compose_default_files()
         if files:
+            logger.debug("main: compose: files=%s", files)
             temps = [rewrite_compose_file(f) for f in files]
             env = env_with_buildkit_off()
             env["COMPOSE_FILE"] = os.pathsep.join(temps)
@@ -700,10 +788,11 @@ def main():
 
         sys.exit(run_real([cmd, *rest2], env=env_with_buildkit_off()))
 
-   # Handle image and container subcommands
+    # Handle image and container subcommands
     if cmd in {"image", "container"} and rest:
         sub = rest[0]
         subrest = rest[1:]
+        logger.debug("main: %s subcmd=%s", cmd, sub)
         if sub in {"pull", "run", "create"}:
             sys.exit(run_real([cmd, sub, *rewrite_first_image(subrest)]))
         if sub == "rm":
@@ -721,6 +810,7 @@ def main():
         sys.exit(run_real([cmd, *rest]))
 
     # Default case - pass through unchanged
+    logger.debug("main: default pass-through, no rewriting")
     sys.exit(run_real(argv))
 
 
