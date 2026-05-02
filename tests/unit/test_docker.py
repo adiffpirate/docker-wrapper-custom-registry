@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import logging
 import os
 import sys
 import tempfile
@@ -631,6 +632,25 @@ class TestRewriteComposeFile(unittest.TestCase):
             os.unlink(result)
         finally:
             os.unlink(path)
+
+
+class TestLogger(unittest.TestCase):
+    def test_logger_exists(self):
+        self.assertTrue(hasattr(docker, "logger"))
+        self.assertIsNotNone(docker.logger)
+
+    def test_logger_propagates(self):
+        # Logger should propagate to root which has handlers from basicConfig
+        self.assertTrue(docker.logger.propagate)
+
+    def test_log_level_default(self):
+        # Default log level - logger level is NOTSET (inherits from root)
+        # The effective level is determined by the root logger's level
+        self.assertIn(docker.logger.level, (logging.NOTSET, logging.WARNING))
+
+    def test_log_level_attr_exists(self):
+        # Verify LOG_LEVEL attribute exists
+        self.assertTrue(hasattr(docker, "LOG_LEVEL"))
 
 
 if __name__ == "__main__":

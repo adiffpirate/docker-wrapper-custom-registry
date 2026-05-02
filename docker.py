@@ -15,6 +15,7 @@ The script expects /usr/bin/docker.real to exist (the actual docker binary).
 """
 import atexit
 import copy
+import logging
 import os
 import subprocess
 import sys
@@ -25,19 +26,28 @@ try:
 except Exception:
     yaml = None
 
+LOG_LEVEL = os.environ.get("DOCKER_LOG_LEVEL", "WARNING").upper()
+
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.WARNING),
+    format="%(levelname)s: %(message)s",
+    stream=sys.stderr,
+)
+logger = logging.getLogger("docker-wrapper")
+
 REAL = os.environ.get("DOCKER_REAL", "/usr/bin/docker.real")
 REGISTRY = os.environ.get("DOCKER_REGISTRY")
 DEFAULT_TIMEOUT = int(os.environ.get("DOCKER_TIMEOUT", "300"))
 if not REGISTRY:
-    print("Error: DOCKER_REGISTRY environment variable is not set.", file=sys.stderr)
-    print("Set it to your local registry address, e.g.:", file=sys.stderr)
-    print("  export DOCKER_REGISTRY=10.0.2.100:5000", file=sys.stderr)
+    logger.error("DOCKER_REGISTRY environment variable is not set.")
+    logger.error("Set it to your local registry address, e.g.:")
+    logger.error("  export DOCKER_REGISTRY=10.0.2.100:5000")
     sys.exit(1)
 TEMP_PATHS = []
 
 if not os.path.isfile(REAL):
-    print(f"Error: docker.real binary not found at '{REAL}'.", file=sys.stderr)
-    print("Set DOCKER_REAL environment variable to the correct path.", file=sys.stderr)
+    logger.error("docker.real binary not found at '%s'.", REAL)
+    logger.error("Set DOCKER_REAL environment variable to the correct path.")
     sys.exit(1)
 
 # Boolean flags that don't consume the next argument
@@ -572,7 +582,7 @@ def run_real(argv, env=None, timeout=None):
         result = subprocess.run([REAL, *argv], env=env, timeout=timeout)
         return result.returncode
     except subprocess.TimeoutExpired:
-        print(f"Error: docker command timed out after {timeout}s", file=sys.stderr)
+        logger.error("docker command timed out after %ss", timeout)
         return 1
 
 
