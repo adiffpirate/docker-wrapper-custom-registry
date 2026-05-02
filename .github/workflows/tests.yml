@@ -14,7 +14,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - run: pip install pyyaml
       - run: make test-unit
+        env:
+          DOCKER_WRAPPER_DEBUG: "1"
 
   integration:
     runs-on: ubuntu-latest
@@ -23,4 +26,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - run: pip install pyyaml
       - run: make test-functional
