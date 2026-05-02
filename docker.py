@@ -26,6 +26,7 @@ except Exception:
 
 REAL = os.environ.get("DOCKER_REAL", "/usr/bin/docker.real")
 REGISTRY = os.environ.get("DOCKER_REGISTRY")
+DEFAULT_TIMEOUT = int(os.environ.get("DOCKER_TIMEOUT", "300"))
 if not REGISTRY:
     print("Error: DOCKER_REGISTRY environment variable is not set.", file=sys.stderr)
     print("Set it to your local registry address, e.g.:", file=sys.stderr)
@@ -540,19 +541,26 @@ def env_with_buildkit_off():
     return env
 
 
-def run_real(argv, env=None):
+def run_real(argv, env=None, timeout=None):
     """
     Execute the real docker command with given arguments.
     
     Args:
         argv (list): Arguments to pass to docker
         env (dict): Environment variables to use
+        timeout (int): Maximum time in seconds to wait for the command (default: 300)
         
     Returns:
         int: Return code of the subprocess
     """
-    result = subprocess.run([REAL, *argv], env=env)
-    return result.returncode
+    if timeout is None:
+        timeout = DEFAULT_TIMEOUT
+    try:
+        result = subprocess.run([REAL, *argv], env=env, timeout=timeout)
+        return result.returncode
+    except subprocess.TimeoutExpired:
+        print(f"Error: docker command timed out after {timeout}s", file=sys.stderr)
+        return 1
 
 
 def main():

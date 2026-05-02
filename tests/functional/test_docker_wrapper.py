@@ -417,6 +417,27 @@ class TestMissingEnv(unittest.TestCase):
         self.assertIn("docker.real", stderr)
         self.assertIn("not found", stderr)
 
+    def test_timeout_handling(self):
+        tmpdir = tempfile.mkdtemp()
+        try:
+            # Create a Python-based mock that sleeps longer than the test timeout
+            slow_real = os.path.join(tmpdir, "docker.real")
+            with open(slow_real, "w") as f:
+                f.write("#!/usr/bin/env python3\nimport time; time.sleep(9999)\n")
+            os.chmod(slow_real, 0o755)
+
+            stdout, stderr, rc = run_wrapper(
+                ["pull", "python:3.11"],
+                real_path=slow_real,
+                extra_env={"DOCKER_TIMEOUT": "1"},
+            )
+            # Should exit with non-zero due to timeout
+            self.assertNotEqual(rc, 0)
+            self.assertIn("timed out", stderr)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
 
 class TestBuildKitDisabled(unittest.TestCase):
     def test_build_has_buildkit_off(self):
