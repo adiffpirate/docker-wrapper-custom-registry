@@ -416,6 +416,12 @@ def rewrite_compose_file(path: str, registry: str = REGISTRY) -> str:
 
     new_docs = [rewrite_compose_doc(d, compose_dir, registry) if d is not None else None for d in docs]
 
+    original_yaml = yaml.safe_dump_all(docs, sort_keys=False)
+    new_yaml = yaml.safe_dump_all(new_docs, sort_keys=False)
+
+    if original_yaml == new_yaml:
+        return path
+
     tmp = temp_file_same_dir(path, suffix=".compose.yml")
     with open(tmp, "w", encoding="utf-8") as f:
         yaml.safe_dump_all(new_docs, f, sort_keys=False)

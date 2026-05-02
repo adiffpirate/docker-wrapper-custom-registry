@@ -535,6 +535,16 @@ class TestExtractDockerfile(unittest.TestCase):
 
 
 class TestRewriteComposeFile(unittest.TestCase):
+    def test_no_change_no_temp_file(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
+            f.write("services:\n  web:\n    image: localhost/foo\n")
+            path = f.name
+        try:
+            result = docker.rewrite_compose_file(path, registry="10.0.2.100:5000")
+            self.assertEqual(result, path)
+        finally:
+            os.unlink(path)
+
     def test_rewrite_creates_temp(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
             f.write("services:\n  web:\n    image: python:3.11\n")
