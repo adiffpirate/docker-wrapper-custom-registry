@@ -35,20 +35,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("docker-wrapper")
 
-REAL = os.environ.get("DOCKER_REAL", "/usr/bin/docker.real")
-REGISTRY = os.environ.get("DOCKER_REGISTRY")
-DEFAULT_TIMEOUT = int(os.environ.get("DOCKER_TIMEOUT", "300"))
-if not REGISTRY:
-    logger.error("DOCKER_REGISTRY environment variable is not set.")
-    logger.error("Set it to your local registry address, e.g.:")
-    logger.error("  export DOCKER_REGISTRY=10.0.2.100:5000")
-    sys.exit(1)
 TEMP_PATHS = []
-
-if not os.path.isfile(REAL):
-    logger.error("docker.real binary not found at '%s'.", REAL)
-    logger.error("Set DOCKER_REAL environment variable to the correct path.")
-    sys.exit(1)
 
 # Boolean flags that don't consume the next argument
 _BOOLEAN_FLAGS = {
@@ -93,8 +80,10 @@ def is_qualified(ref: str) -> bool:
     return head == "localhost" or "." in head or ":" in head
 
 
-def rewrite(ref: str, registry: str = REGISTRY) -> str:
+def rewrite(ref: str, registry: str = None) -> str:
     """Rewrite unqualified image reference to use custom registry."""
+    if registry is None:
+        registry = REGISTRY
     if ref.startswith(registry + "/") or is_qualified(ref):
         return ref
     return f"{registry}/{ref}"
@@ -133,13 +122,16 @@ def _skip_flag_args(args, i):
     return i
 
 
-def rewrite_first_image(args, registry: str = REGISTRY):
+def rewrite_first_image(args, registry: str = None):
     """
     Rewrite the first non-flag image argument.
     
     Handles flags like -t, --name, etc. that consume the next argument.
     For flags with embedded values (e.g., --file=/path), the value is part of the flag.
     """
+    if registry is None:
+        registry = REGISTRY
+
     out = list(args)
     
     # Skip all leading flags to find first non-flag argument
@@ -152,12 +144,15 @@ def rewrite_first_image(args, registry: str = REGISTRY):
     return out
 
 
-def rewrite_push_image(args, registry: str = REGISTRY):
+def rewrite_push_image(args, registry: str = None):
     """
     Rewrite the first non-flag image argument, treating --all-tags as boolean.
     
     Handles special case for --all-tags/-a flag which doesn't consume arguments.
     """
+    if registry is None:
+        registry = REGISTRY
+
     out = list(args)
     
     i = 0
@@ -187,13 +182,16 @@ def rewrite_push_image(args, registry: str = REGISTRY):
     return out
 
 
-def rewrite_tag_args(args, registry: str = REGISTRY):
+def rewrite_tag_args(args, registry: str = None):
     """
     Rewrite SOURCE_IMAGE and TARGET_IMAGE for docker tag.
     
     docker tag [OPTIONS] SOURCE_IMAGE[:TAG] TARGET_IMAGE[:TAG]
     Both positional args are image references that need rewriting.
     """
+    if registry is None:
+        registry = REGISTRY
+
     out = list(args)
     
     # Skip flags to find first positional (SOURCE_IMAGE)
@@ -214,7 +212,7 @@ def rewrite_tag_args(args, registry: str = REGISTRY):
     return out
 
 
-def rewrite_commit_args(args, registry: str = REGISTRY):
+def rewrite_commit_args(args, registry: str = None):
     """
     Rewrite the optional REPOSITORY[:TAG] for docker commit.
     
@@ -222,6 +220,9 @@ def rewrite_commit_args(args, registry: str = REGISTRY):
     The first positional is the container name (not rewritten).
     The second positional (if present) is an image ref (rewritten).
     """
+    if registry is None:
+        registry = REGISTRY
+
     out = list(args)
     
     # Skip flags to find first positional (CONTAINER)
@@ -241,13 +242,16 @@ def rewrite_commit_args(args, registry: str = REGISTRY):
     return out
 
 
-def rewrite_all_images(args, registry: str = REGISTRY):
+def rewrite_all_images(args, registry: str = None):
     """
     Rewrite all non-flag image arguments.
     
     Handles flags like -t, --name, etc. that consume the next argument.
     For flags with embedded values (e.g., --file=/path), the value is part of the flag.
     """
+    if registry is None:
+        registry = REGISTRY
+
     out = list(args)
     
     i = 0
@@ -263,7 +267,7 @@ def rewrite_all_images(args, registry: str = REGISTRY):
     return out
 
 
-def rewrite_dockerfile_text(text: str, registry: str = REGISTRY) -> str:
+def rewrite_dockerfile_text(text: str, registry: str = None) -> str:
     """
     Rewrite FROM lines in Dockerfile text to use custom registry.
     
@@ -274,6 +278,9 @@ def rewrite_dockerfile_text(text: str, registry: str = REGISTRY) -> str:
     Returns:
         str: The modified Dockerfile content with FROM lines rewritten
     """
+    if registry is None:
+        registry = REGISTRY
+
     out = []
 
     for line in text.splitlines(True):
@@ -331,7 +338,7 @@ def temp_file_same_dir(src_path: str, suffix: str):
     return tmp
 
 
-def rewrite_dockerfile(path: str, registry: str = REGISTRY) -> str:
+def rewrite_dockerfile(path: str, registry: str = None):
     """
     Rewrite FROM lines in a Dockerfile to use custom registry.
     
@@ -342,6 +349,9 @@ def rewrite_dockerfile(path: str, registry: str = REGISTRY) -> str:
     Returns:
         str: Path to the rewritten file (original if no changes needed)
     """
+    if registry is None:
+        registry = REGISTRY
+
     if not os.path.exists(path):
         return path
 
@@ -359,7 +369,7 @@ def rewrite_dockerfile(path: str, registry: str = REGISTRY) -> str:
     return tmp
 
 
-def rewrite_compose_doc(doc, compose_dir: str, registry: str = REGISTRY):
+def rewrite_compose_doc(doc, compose_dir: str, registry: str = None):
     """
     Recursively rewrite image references in compose document.
     
@@ -371,6 +381,9 @@ def rewrite_compose_doc(doc, compose_dir: str, registry: str = REGISTRY):
     Returns:
         The modified compose document with image references rewritten
     """
+    if registry is None:
+        registry = REGISTRY
+
     if isinstance(doc, dict):
         out = {}
         for k, v in doc.items():
@@ -408,7 +421,7 @@ def rewrite_compose_doc(doc, compose_dir: str, registry: str = REGISTRY):
     return doc
 
 
-def rewrite_compose_file(path: str, registry: str = REGISTRY) -> str:
+def rewrite_compose_file(path: str, registry: str = None):
     """
     Rewrite image references in a compose file to use custom registry.
     
@@ -419,6 +432,9 @@ def rewrite_compose_file(path: str, registry: str = REGISTRY) -> str:
     Returns:
         str: Path to the rewritten file (original if yaml not available or no changes needed)
     """
+    if registry is None:
+        registry = REGISTRY
+
     if yaml is None or not os.path.exists(path):
         return path
 
@@ -592,6 +608,20 @@ def main():
     
     Parses command line arguments and routes to appropriate handlers.
     """
+    global REAL, REGISTRY, DEFAULT_TIMEOUT
+    REAL = os.environ.get("DOCKER_REAL", "/usr/bin/docker.real")
+    REGISTRY = os.environ.get("DOCKER_REGISTRY")
+    DEFAULT_TIMEOUT = int(os.environ.get("DOCKER_TIMEOUT", "300"))
+    if not REGISTRY:
+        logger.error("DOCKER_REGISTRY environment variable is not set.")
+        logger.error("Set it to your local registry address, e.g.:")
+        logger.error("  export DOCKER_REGISTRY=10.0.2.100:5000")
+        sys.exit(1)
+    if not os.path.isfile(REAL):
+        logger.error("docker.real binary not found at '%s'.", REAL)
+        logger.error("Set DOCKER_REAL environment variable to the correct path.")
+        sys.exit(1)
+
     argv = sys.argv[1:]
     if not argv:
         os.execv(REAL, [REAL])
