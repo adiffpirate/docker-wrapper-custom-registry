@@ -33,7 +33,7 @@ It expects `/usr/bin/docker.real` to exist (the actual docker binary). Without a
 ### Constraints
 
 - `DOCKER_REGISTRY` env var is **required** — the script exits with an error if not set
-- Depends on `pyyaml` (mandatory — listed in `requirements.txt`)
+- Uses only Python standard library modules (no external dependencies)
 - Temp files use prefix `.FILENAME.rewritten.` in the same directory as the source
 - `DOCKER_REAL` env var overrides the hardcoded `/usr/bin/docker.real` path (useful for tests)
 

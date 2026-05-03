@@ -21,7 +21,7 @@ import subprocess
 import sys
 import tempfile
 
-import yaml
+
 
 LOG_LEVEL = os.environ.get("DOCKER_WRAPPER_LOG_LEVEL", "WARNING").upper()
 debug_mode = os.environ.get("DOCKER_WRAPPER_DEBUG", "").lower() in ("1", "true", "yes")
@@ -39,6 +39,297 @@ logging.basicConfig(
 logger = logging.getLogger("docker-wrapper")
 
 TEMP_PATHS = []
+
+
+# --- Minimal YAML parser/serializer for docker-compose files ---
+
+def _yaml_parse_value(s):
+    """Parse a YAML scalar value string into a Python object."""
+    s = s.strip()
+    if s == "" or s == "null" or s == "~":
+        return None
+    if s == "true" or s == "yes" or s == "on":
+        return True
+    if s == "false" or s == "no" or s == "off":
+        return False
+    # Quoted strings
+    if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+        return s[1:-1]
+    # Try int
+    try:
+        return int(s)
+    except ValueError:
+        pass
+    # Try float
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    return s
+
+
+def _get_indent(line):
+    """Get the indentation level of a line."""
+    return len(line) - len(line.lstrip())
+
+
+def _parse_yaml_value_or_block(lines, start, base_indent):
+    """Parse a value that could be a scalar or a nested block.
+
+    Returns (parsed_object, next_line_index).
+    """
+    # Find next non-empty line after start
+    i = start
+    while i < len(lines) and lines[i].strip() == "":
+        i += 1
+
+    if i >= len(lines):
+        return None, i
+
+    next_line = lines[i]
+    next_indent = _get_indent(next_line)
+
+    # If next line is not more indented, this is a scalar (possibly empty)
+    if next_indent <= base_indent:
+        # Check if current line has a value after the colon
+        return None, i
+
+    # Parse nested block
+    if next_line.lstrip().startswith("- "):
+        return _parse_yaml_list(lines, i, next_indent)
+    else:
+        return _parse_yaml_mapping(lines, i, next_indent)
+
+
+def _parse_yaml_mapping(lines, start, base_indent):
+    """Parse a YAML mapping starting at the given line index."""
+    result = {}
+    i = start
+
+    while i < len(lines):
+        line = lines[i]
+
+        # Skip empty lines and comments
+        if line.strip() == "" or line.strip().startswith("#"):
+            i += 1
+            continue
+
+        current_indent = _get_indent(line)
+
+        # If we've dedented, we're done with this mapping
+        if current_indent < base_indent:
+            break
+
+        # If we're at a different indent level, skip
+        if current_indent > base_indent:
+            i += 1
+            continue
+
+        # Parse key: value or key:
+        stripped = line.strip()
+
+        # Handle key: value
+        if ": " in stripped:
+            key, _, val = stripped.partition(": ")
+            key = key.strip()
+            val = val.strip()
+
+            if val:
+                # Inline value
+                result[key] = _yaml_parse_value(val)
+                i += 1
+            else:
+                # Check for nested block
+                result[key], i = _parse_yaml_value_or_block(lines, i + 1, current_indent)
+
+        # Handle key: (ends with colon)
+        elif stripped.endswith(":"):
+            key = stripped[:-1].strip()
+            result[key], i = _parse_yaml_value_or_block(lines, i + 1, current_indent)
+
+        else:
+            i += 1
+
+    return result, i
+
+
+def _parse_yaml_list(lines, start, base_indent):
+    """Parse a YAML list starting at the given line index."""
+    result = []
+    i = start
+
+    while i < len(lines):
+        line = lines[i]
+
+        # Skip empty lines and comments
+        if line.strip() == "" or line.strip().startswith("#"):
+            i += 1
+            continue
+
+        current_indent = _get_indent(line)
+
+        # If we've dedented, we're done with this list
+        if current_indent < base_indent:
+            break
+
+        # If we're at a different indent level, skip
+        if current_indent > base_indent:
+            i += 1
+            continue
+
+        # Must be a list item
+        if not line.strip().startswith("- "):
+            i += 1
+            continue
+
+        item_content = line.strip()[2:].strip()
+
+        if not item_content:
+            # Block follows
+            item, i = _parse_yaml_value_or_block(lines, i + 1, current_indent)
+            result.append(item)
+        elif ": " in item_content and not item_content.startswith('"') and not item_content.startswith("'"):
+            # Inline mapping like "- key: value" or "- key:"
+            key, _, val = item_content.partition(": ")
+            key = key.strip()
+
+            if val:
+                result.append({key: _yaml_parse_value(val)})
+                i += 1
+            else:
+                # Nested block under this key
+                nested, i = _parse_yaml_value_or_block(lines, i + 1, current_indent)
+                result.append({key: nested})
+        else:
+            # Simple scalar
+            result.append(_yaml_parse_value(item_content))
+            i += 1
+
+    return result, i
+
+
+def _parse_yaml_block(lines, start=0, base_indent=None):
+    """Parse a YAML block starting at the given line index."""
+    # Find the base indent from the first non-empty line
+    i = start
+    while i < len(lines) and lines[i].strip() == "":
+        i += 1
+
+    if i >= len(lines):
+        return None, i
+
+    first_line = lines[i]
+    if base_indent is None:
+        base_indent = _get_indent(first_line)
+
+    stripped = first_line.strip()
+
+    if stripped.startswith("- "):
+        return _parse_yaml_list(lines, i, base_indent)
+    else:
+        return _parse_yaml_mapping(lines, i, base_indent)
+
+
+def _yaml_parse(text):
+    """Parse YAML text into a list of documents."""
+    # Split into documents by ---
+    doc_strings = text.split("---")
+    results = []
+    for doc_str in doc_strings:
+        doc_str = doc_str.strip()
+        if not doc_str:
+            results.append(None)
+            continue
+        lines = doc_str.split("\n")
+        parsed, _ = _parse_yaml_block(lines)
+        results.append(parsed)
+    return results
+
+
+def _yaml_serialize_scalar(value):
+    """Serialize a Python scalar to a YAML string."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    s = str(value)
+    # Quote strings that could be misinterpreted
+    if s == "" or s in ("true", "false", "yes", "no", "on", "off",
+                         "null", "~", "True", "False", "Yes", "No"):
+        return f'"{s}"'
+    # Quote if starts/ends with whitespace or problematic chars
+    # Note: colons are OK in values (e.g. image refs like python:3.11)
+    if (s[0] in ('"', "'") or s[-1] in ('"', "'") or
+            any(c in s for c in "{}[],&*?|->!%@`") or
+            "\n" in s or "\t" in s):
+        return f'"{s}"'
+    return s
+
+
+def _yaml_serialize(obj, indent=0):
+    """Serialize a Python object to YAML text."""
+    if obj is None:
+        return "null"
+    if isinstance(obj, bool):
+        return "true" if obj else "false"
+    if isinstance(obj, (int, float)):
+        return str(obj)
+    if isinstance(obj, str):
+        return _yaml_serialize_scalar(obj)
+    if isinstance(obj, list):
+        lines = []
+        for item in obj:
+            prefix = "  " * indent + "- "
+            if isinstance(item, dict):
+                sub = _yaml_serialize(item, indent + 1)
+                first_line, _, rest = sub.partition("\n") if "\n" in sub else (sub, "", "")
+                lines.append(prefix + first_line)
+                for rline in rest.split("\n"):
+                    lines.append("  " * (indent + 1) + rline)
+            elif isinstance(item, list):
+                sub = _yaml_serialize(item, indent + 1)
+                lines.append(prefix + sub.split("\n")[0])
+                for rline in sub.split("\n")[1:]:
+                    lines.append("  " * (indent + 1) + rline)
+            else:
+                lines.append(prefix + _yaml_serialize(item))
+        return "\n".join(lines)
+    if isinstance(obj, dict):
+        lines = []
+        for k, v in obj.items():
+            key_str = str(k)
+            if v is None:
+                lines.append("  " * indent + key_str + ": null")
+            elif isinstance(v, (dict, list)):
+                sub = _yaml_serialize(v, indent + 1)
+                lines.append("  " * indent + key_str + ":")
+                lines.append(sub)
+            else:
+                lines.append("  " * indent + key_str + ": " + _yaml_serialize_scalar(v))
+        return "\n".join(lines)
+    return str(obj)
+
+
+def _yaml_load_all(text):
+    """Load all YAML documents from text."""
+    return _yaml_parse(text)
+
+
+def _yaml_dump_all(docs, sort_keys=False):
+    """Dump all YAML documents to text."""
+    parts = []
+    for doc in docs:
+        if doc is None:
+            parts.append("")
+        else:
+            parts.append(_yaml_serialize(doc))
+    return "\n".join(parts) + "\n" if any(d is not None for d in docs) else ""
+
+
+# --- End of YAML parser/serializer ---
+
 
 # Boolean flags that don't consume the next argument
 _BOOLEAN_FLAGS = {
@@ -482,14 +773,14 @@ def rewrite_compose_file(path: str, registry: str = None, debug: bool = False):
 
     compose_dir = os.path.dirname(os.path.abspath(path)) or "."
     with open(path, "r", encoding="utf-8") as f:
-        docs = list(yaml.safe_load_all(f))
+        docs = _yaml_load_all(f.read())
 
     logger.debug("rewrite_compose_file: loaded %d YAML document(s): %s", len(docs), docs)
 
     new_docs = [rewrite_compose_doc(d, compose_dir, registry) if d is not None else None for d in docs]
 
-    original_yaml = yaml.safe_dump_all(docs, sort_keys=False)
-    new_yaml = yaml.safe_dump_all(new_docs, sort_keys=False)
+    original_yaml = _yaml_dump_all(docs)
+    new_yaml = _yaml_dump_all(new_docs)
 
     logger.debug("rewrite_compose_file: original_yaml == new_yaml: %s", original_yaml == new_yaml)
     if original_yaml == new_yaml:
@@ -501,7 +792,7 @@ def rewrite_compose_file(path: str, registry: str = None, debug: bool = False):
     tmp = temp_file_same_dir(path, suffix=".compose.yml")
     logger.debug("rewrite_compose_file: created temp file: %s", tmp)
     with open(tmp, "w", encoding="utf-8") as f:
-        yaml.safe_dump_all(new_docs, f, sort_keys=False)
+        f.write(_yaml_dump_all(new_docs))
 
     return tmp
 

@@ -14,7 +14,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt
       - run: make test-unit
         env:
           DOCKER_WRAPPER_DEBUG: "1"
@@ -26,7 +25,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt
       - run: make test-functional
         env:
           DOCKER_WRAPPER_DEBUG: "1"
