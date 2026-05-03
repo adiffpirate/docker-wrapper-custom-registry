@@ -8,9 +8,6 @@ to use a custom registry address. It handles various Docker subcommands includin
 - image subcommands (pull, run, create, push, rm, save, tag, commit, build)
 - compose and buildx commands
 
-Usage:
-    DOCKER_REGISTRY=10.0.2.100:5000 python3 docker.py <docker-args...>
-
 The script expects /usr/bin/docker.real to exist (the actual docker binary).
 """
 import atexit
