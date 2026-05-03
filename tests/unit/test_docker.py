@@ -657,6 +657,61 @@ class TestExtractDockerfile(unittest.TestCase):
         self.assertEqual(out, ["-t", "tag", "context"])
 
 
+class TestRewriteComposeText(unittest.TestCase):
+    def test_simple_image_rewrite(self):
+        text = "services:\n  web:\n    image: python:3.11\n"
+        result = docker.rewrite_compose_text(text, ".", registry="10.0.2.100:5000")
+        self.assertIn("10.0.2.100:5000/python:3.11", result)
+
+    def test_qualified_image_unchanged(self):
+        text = "services:\n  web:\n    image: localhost/foo\n"
+        result = docker.rewrite_compose_text(text, ".", registry="10.0.2.100:5000")
+        self.assertEqual(result, text)
+
+    def test_scratch_image_unchanged(self):
+        text = "services:\n  web:\n    image: scratch\n"
+        result = docker.rewrite_compose_text(text, ".", registry="10.0.2.100:5000")
+        self.assertEqual(result, text)
+
+    def test_multiple_images(self):
+        text = "services:\n  web:\n    image: python:3.11\n  db:\n    image: postgres:15\n"
+        result = docker.rewrite_compose_text(text, ".", registry="10.0.2.100:5000")
+        self.assertIn("10.0.2.100:5000/python:3.11", result)
+        self.assertIn("10.0.2.100:5000/postgres:15", result)
+
+    def test_quoted_image_rewrite(self):
+        text = 'services:\n  web:\n    image: "python:3.11"\n'
+        result = docker.rewrite_compose_text(text, ".", registry="10.0.2.100:5000")
+        self.assertIn("10.0.2.100:5000/python:3.11", result)
+
+    def test_other_keys_unchanged(self):
+        text = 'services:\n  web:\n    image: python:3.11\n    ports:\n      - "8080:80"\n'
+        result = docker.rewrite_compose_text(text, ".", registry="10.0.2.100:5000")
+        self.assertIn("10.0.2.100:5000/python:3.11", result)
+        self.assertIn('ports:', result)
+        self.assertIn('"8080:80"', result)
+
+    def test_no_change_returns_original(self):
+        text = "services:\n  web:\n    image: localhost/foo\n"
+        result = docker.rewrite_compose_text(text, ".", registry="10.0.2.100:5000")
+        self.assertEqual(result, text)
+
+    def test_empty_text(self):
+        result = docker.rewrite_compose_text("", ".", registry="10.0.2.100:5000")
+        self.assertEqual(result, "")
+
+    def test_build_dockerfile_rewrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            df_path = os.path.join(tmpdir, "Dockerfile")
+            with open(df_path, "w") as f:
+                f.write("FROM python:3.11\n")
+            text = f"services:\n  web:\n    build:\n      dockerfile: Dockerfile\n      context: .\n"
+            result = docker.rewrite_compose_text(text, tmpdir, registry="10.0.2.100:5000")
+            # The dockerfile path should be rewritten to a temp file
+            self.assertIn(".Dockerfile.rewritten.", result)
+            self.assertNotIn("dockerfile: Dockerfile", result)
+
+
 class TestRewriteComposeFile(unittest.TestCase):
     def test_no_change_no_temp_file(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:

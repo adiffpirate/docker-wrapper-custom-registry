@@ -496,13 +496,14 @@ def rewrite_compose_text(text: str, compose_dir: str, registry: str = None) -> s
             current_indent = len(stripped) - len(stripped.lstrip())
             stripped_content = stripped.lstrip()
 
-            # Check if this line starts a build: block
-            if stripped_content.startswith("build:") and current_indent <= build_indent:
-                in_build = True
-                build_indent = current_indent
+            # Check if this line starts a build: block (at same or higher indent than current build)
+            if stripped_content.startswith("build:"):
+                if not in_build or current_indent <= build_indent:
+                    in_build = True
+                    build_indent = current_indent
 
             # Check if we've dedented out of the build block
-            if in_build and current_indent < build_indent and stripped_content and not stripped_content.startswith("- "):
+            if in_build and current_indent < build_indent and not stripped_content.startswith("- "):
                 in_build = False
                 build_indent = -1
 
