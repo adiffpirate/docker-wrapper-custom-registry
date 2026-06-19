@@ -15,10 +15,10 @@ import copy
 import logging
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
-
 
 
 LOG_LEVEL = os.environ.get("DOCKER_WRAPPER_LOG_LEVEL", "WARNING").upper()
@@ -37,9 +37,44 @@ logging.basicConfig(
 logger = logging.getLogger("docker-wrapper")
 
 TEMP_PATHS = []
+_CURRENT_PROC = None
 
 
+def cleanup():
+    """Clean up temporary files and terminate any running subprocess."""
+    global _CURRENT_PROC
+    # Terminate child docker process if still running
+    if _CURRENT_PROC is not None and _CURRENT_PROC.poll() is None:
+        try:
+            _CURRENT_PROC.terminate()
+            _CURRENT_PROC.wait(timeout=5)
+        except Exception:
+            try:
+                _CURRENT_PROC.kill()
+                _CURRENT_PROC.wait(timeout=5)
+            except Exception:
+                pass
+        _CURRENT_PROC = None
+    # Remove temp files
+    for p in TEMP_PATHS:
+        try:
+            os.unlink(p)
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            logger.debug("cleanup: failed to remove %s: %s", p, e)
 
+
+# Register cleanup on normal exit
+atexit.register(cleanup)
+
+# Also register cleanup for signals like SIGINT (Ctrl+C) and SIGTERM
+def signal_handler(signum, frame):
+    cleanup()
+    os._exit(128 + signum)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 
 # Boolean flags that don't consume the next argument
@@ -56,18 +91,6 @@ _BOOLEAN_FLAGS = {
     "--tty", "-t", "-T",
     "--version",
 }
-
-
-def cleanup():
-    """Clean up temporary files created during image rewriting."""
-    for p in TEMP_PATHS:
-        try:
-            os.unlink(p)
-        except FileNotFoundError:
-            pass
-
-
-atexit.register(cleanup)
 
 
 def is_flag(arg: str) -> bool:
@@ -729,13 +752,21 @@ def run_real(argv, env=None, timeout=None):
     if timeout is None:
         timeout = DEFAULT_TIMEOUT
     logger.debug("run_real: REAL=%s, argv=%s, timeout=%s", REAL, argv, timeout)
+    global _CURRENT_PROC
+    proc = subprocess.Popen([REAL, *argv], env=env)
+    _CURRENT_PROC = proc
     try:
-        result = subprocess.run([REAL, *argv], env=env, timeout=timeout)
-        logger.debug("run_real: returned %s", result.returncode)
-        return result.returncode
+        returncode = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
         logger.error("docker command timed out after %ss", timeout)
-        return 1
+        returncode = 1
+    finally:
+        if _CURRENT_PROC is proc:
+            _CURRENT_PROC = None
+    logger.debug("run_real: returned %s", returncode)
+    return returncode
 
 
 def main():
