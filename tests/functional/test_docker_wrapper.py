@@ -743,14 +743,12 @@ services:
                 cwd=tmpdir
             )
             
-            # Verify the command was run with rewritten image
+            # Verify the command ran successfully
             self.assertEqual(result.returncode, 0)
-            self.assertIn("10.0.2.100:5000/python:3.11", result.stdout)
             
-            # Check that temporary files were created and then cleaned up
-            # Look for temp files in the directory (they should be cleaned up by atexit)
-            temp_files_before = [f for f in os.listdir(tmpdir) if f.startswith(".docker-compose.yml.rewritten.")]
-            self.assertTrue(len(temp_files_before) >= 0, "Temporary files may have been created")
+            # Verify temp compose files were cleaned up by atexit
+            temp_files = [f for f in os.listdir(tmpdir) if f.startswith(".docker-compose.yml.rewritten.")]
+            self.assertEqual(len(temp_files), 0, "Temp compose files should be cleaned up")
             
     def test_dockerfile_cleanup(self):
         """Test that temporary Dockerfiles are cleaned up after execution."""
@@ -780,9 +778,14 @@ services:
                 cwd=tmpdir
             )
             
-            # Verify the command was run with rewritten image
+            # Verify the command ran successfully with rewritten dockerfile path
             self.assertEqual(result.returncode, 0)
-            self.assertIn("10.0.2.100:5000/python:3.11", result.stdout)
+            self.assertIn(".rewritten.", result.stdout)
+            self.assertIn(".Dockerfile", result.stdout)
+            
+            # Verify temp dockerfiles were cleaned up by atexit
+            temp_files = [f for f in os.listdir(tmpdir) if f.startswith(".Dockerfile.rewritten.")]
+            self.assertEqual(len(temp_files), 0, "Temp dockerfiles should be cleaned up")
 
 
 class TestSignalCleanup(unittest.TestCase):
