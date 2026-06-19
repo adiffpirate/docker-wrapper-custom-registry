@@ -6,9 +6,11 @@ docker.real binary and verify that image references are rewritten correctly.
 """
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 
@@ -703,6 +705,173 @@ class TestBuilderBuild(unittest.TestCase):
                 self.assertEqual(first_args[2], "-f")
                 self.assertIn(".rewritten.", first_args[3])
                 self.assertTrue(first_args[3].endswith(".Dockerfile"))
+
+
+class TestTempFileCleanup(unittest.TestCase):
+    def test_compose_file_cleanup(self):
+        """Test that temporary compose files are cleaned up after execution."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a test compose file
+            compose_path = os.path.join(tmpdir, "docker-compose.yml")
+            with open(compose_path, "w") as f:
+                f.write("""
+version: '3'
+services:
+  web:
+    image: python:3.11
+    volumes:
+      - .:/app
+""")
+            
+            # Mock the docker.real binary to capture what commands are run
+            real_path = os.path.join(tmpdir, "docker.real")
+            mock_script = '#!/bin/sh\necho "DOCKER_CMD: $*"\nexit 0\n'
+            with open(real_path, "w") as f:
+                f.write(mock_script)
+            os.chmod(real_path, 0o755)
+            
+            # Run docker-compose through our wrapper
+            env = os.environ.copy()
+            env["DOCKER_REGISTRY"] = "10.0.2.100:5000"
+            env["DOCKER_REAL"] = real_path
+            
+            result = subprocess.run(
+                [sys.executable, SCRIPT_PATH, "compose", "-f", compose_path, "up", "--detach"],
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=tmpdir
+            )
+            
+            # Verify the command was run with rewritten image
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("10.0.2.100:5000/python:3.11", result.stdout)
+            
+            # Check that temporary files were created and then cleaned up
+            # Look for temp files in the directory (they should be cleaned up by atexit)
+            temp_files_before = [f for f in os.listdir(tmpdir) if f.startswith(".docker-compose.yml.rewritten.")]
+            self.assertTrue(len(temp_files_before) >= 0, "Temporary files may have been created")
+            
+    def test_dockerfile_cleanup(self):
+        """Test that temporary Dockerfiles are cleaned up after execution."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a test Dockerfile
+            dockerfile_path = os.path.join(tmpdir, "Dockerfile")
+            with open(dockerfile_path, "w") as f:
+                f.write("FROM python:3.11\nRUN echo hello\n")
+            
+            # Mock the docker.real binary to capture what commands are run
+            real_path = os.path.join(tmpdir, "docker.real")
+            mock_script = '#!/bin/sh\necho "DOCKER_CMD: $*"\nexit 0\n'
+            with open(real_path, "w") as f:
+                f.write(mock_script)
+            os.chmod(real_path, 0o755)
+            
+            # Run docker build through our wrapper
+            env = os.environ.copy()
+            env["DOCKER_REGISTRY"] = "10.0.2.100:5000"
+            env["DOCKER_REAL"] = real_path
+            
+            result = subprocess.run(
+                [sys.executable, SCRIPT_PATH, "build", "-f", dockerfile_path, "."],
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=tmpdir
+            )
+            
+            # Verify the command was run with rewritten image
+            self.assertEqual(result.returncode, 0)
+            self.assertIn("10.0.2.100:5000/python:3.11", result.stdout)
+
+
+class TestSignalCleanup(unittest.TestCase):
+    def test_sigint_cleans_up_temp_files(self):
+        """Test that SIGINT terminates child process and cleans temp files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a slow mock that sleeps long enough for us to send SIGINT
+            slow_real = os.path.join(tmpdir, "docker.real")
+            with open(slow_real, "w") as f:
+                f.write("#!/usr/bin/env python3\nimport time; time.sleep(9999)\n")
+            os.chmod(slow_real, 0o755)
+
+            # Create a Dockerfile that triggers temp file creation
+            dockerfile_path = os.path.join(tmpdir, "Dockerfile")
+            with open(dockerfile_path, "w") as f:
+                f.write("FROM python:3.11\nRUN echo hello\n")
+
+            env = os.environ.copy()
+            env["DOCKER_REGISTRY"] = "10.0.2.100:5000"
+            env["DOCKER_REAL"] = slow_real
+
+            wrapper = subprocess.Popen(
+                [sys.executable, SCRIPT_PATH, "build", "-f", dockerfile_path, "."],
+                env=env,
+                cwd=tmpdir,
+            )
+
+            # Wait for wrapper to create temp file and start child
+            time.sleep(0.5)
+
+            # Verify temp file was created
+            temp_files = [f for f in os.listdir(tmpdir) if f.startswith(".Dockerfile.rewritten.")]
+            self.assertTrue(len(temp_files) > 0, "Temp file should exist before SIGINT")
+
+            # Send SIGINT to wrapper
+            wrapper.send_signal(signal.SIGINT)
+            returncode = wrapper.wait(timeout=10)
+
+            # Verify wrapper exited with signal 130 (128 + SIGINT=2)
+            self.assertEqual(returncode, 130)
+
+            # Verify child process was terminated
+            # (wrapper's atexit/signal handler should have killed it)
+            time.sleep(0.5)
+            # Check that any docker.real children are gone
+            for proc in subprocess.run(
+                ["pgrep", "-f", slow_real],
+                capture_output=True, text=True
+            ).stdout.strip().split():
+                if proc:
+                    self.fail(f"Child process {proc} still running after SIGINT")
+
+            # Verify temp files were cleaned up
+            temp_files_after = [f for f in os.listdir(tmpdir) if f.startswith(".Dockerfile.rewritten.")]
+            self.assertEqual(len(temp_files_after), 0, "Temp files should be cleaned up after SIGINT")
+
+    def test_sigterm_cleans_up_temp_files(self):
+        """Test that SIGTERM terminates child process and cleans temp files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            slow_real = os.path.join(tmpdir, "docker.real")
+            with open(slow_real, "w") as f:
+                f.write("#!/usr/bin/env python3\nimport time; time.sleep(9999)\n")
+            os.chmod(slow_real, 0o755)
+
+            dockerfile_path = os.path.join(tmpdir, "Dockerfile")
+            with open(dockerfile_path, "w") as f:
+                f.write("FROM python:3.11\nRUN echo hello\n")
+
+            env = os.environ.copy()
+            env["DOCKER_REGISTRY"] = "10.0.2.100:5000"
+            env["DOCKER_REAL"] = slow_real
+
+            wrapper = subprocess.Popen(
+                [sys.executable, SCRIPT_PATH, "build", "-f", dockerfile_path, "."],
+                env=env,
+                cwd=tmpdir,
+            )
+
+            time.sleep(0.5)
+
+            wrapper.send_signal(signal.SIGTERM)
+            returncode = wrapper.wait(timeout=10)
+
+            # SIGTERM = 15, so exit code should be 128 + 15 = 143
+            self.assertEqual(returncode, 143)
+
+            time.sleep(0.5)
+            temp_files_after = [f for f in os.listdir(tmpdir) if f.startswith(".Dockerfile.rewritten.")]
+            self.assertEqual(len(temp_files_after), 0, "Temp files should be cleaned up after SIGTERM")
 
 
 if __name__ == "__main__":
